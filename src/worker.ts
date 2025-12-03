@@ -159,8 +159,10 @@ export default {
         const type = url.searchParams.get('type') || undefined;
         const orderBy = (url.searchParams.get('orderBy') || 'time') as 'time' | 'score' | 'descendants';
         const order = (url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
+        const sinceParam = url.searchParams.get('since');
+        const since = sinceParam ? parseInt(sinceParam) : undefined;
 
-        const result = await getItems(env.DB, { limit, offset, type, orderBy, order });
+        const result = await getItems(env.DB, { limit, offset, type, orderBy, order, since });
         
         return new Response(JSON.stringify(result), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders },

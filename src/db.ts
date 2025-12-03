@@ -596,9 +596,10 @@ export async function getItems(
     type?: string;
     orderBy?: 'time' | 'score' | 'descendants';
     order?: 'asc' | 'desc';
+    since?: number; // Unix timestamp - only return items since this time
   }
 ): Promise<{ items: DBItem[]; total: number }> {
-  const { limit = 50, offset = 0, type, orderBy = 'time', order = 'desc' } = options;
+  const { limit = 50, offset = 0, type, orderBy = 'time', order = 'desc', since } = options;
   
   // Validate orderBy to prevent SQL injection
   const validOrderBy = ['time', 'score', 'descendants'].includes(orderBy) ? orderBy : 'time';
@@ -607,17 +608,27 @@ export async function getItems(
   try {
     let countQuery = 'SELECT COUNT(*) as count FROM items';
     let itemsQuery = `SELECT id, type, deleted, dead, title, url, text, by, time, score, descendants, parent, first_seen_at, last_updated_at FROM items`;
+    const conditions: string[] = [];
     const bindings: (string | number)[] = [];
     
     if (type) {
       // Filter by specific type
-      countQuery += ' WHERE type = ?';
-      itemsQuery += ' WHERE type = ?';
+      conditions.push('type = ?');
       bindings.push(type);
     } else {
       // Default: exclude comments (show only posts)
-      countQuery += " WHERE type != 'comment'";
-      itemsQuery += " WHERE type != 'comment'";
+      conditions.push("type != 'comment'");
+    }
+    
+    if (since) {
+      conditions.push('time >= ?');
+      bindings.push(since);
+    }
+    
+    if (conditions.length > 0) {
+      const whereClause = ' WHERE ' + conditions.join(' AND ');
+      countQuery += whereClause;
+      itemsQuery += whereClause;
     }
     
     itemsQuery += ` ORDER BY ${validOrderBy} ${validOrder} NULLS LAST LIMIT ? OFFSET ?`;

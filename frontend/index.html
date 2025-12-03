@@ -252,6 +252,14 @@
         </select>
       </div>
       <div class="filter-group">
+        <label for="timeFilter">Time:</label>
+        <select id="timeFilter" onchange="resetAndLoad()">
+          <option value="">All Time</option>
+          <option value="today">Today</option>
+          <option value="24h">Last 24 Hours</option>
+        </select>
+      </div>
+      <div class="filter-group">
         <label for="sortOrder">Sort:</label>
         <select id="sortOrder" onchange="resetAndLoad()">
           <option value="time-desc">Newest First</option>
@@ -280,18 +288,26 @@
 
     async function loadStats() {
       try {
-        const [health, stats] = await Promise.all([
+        const [health, stats, analytics] = await Promise.all([
           fetch(`${API_BASE}/health`).then(r => r.json()),
-          fetch(`${API_BASE}/stats`).then(r => r.json())
+          fetch(`${API_BASE}/stats`).then(r => r.json()),
+          fetch(`${API_BASE}/api/analytics`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
         
         const lastUpdate = health.last_run?.discovery || stats.last_discovery;
         const lastUpdateStr = lastUpdate ? formatDateTime(lastUpdate) : 'Never';
         
+        // Get post/comment counts from type distribution
+        const typeMap = {};
+        (analytics?.typeDistribution || []).forEach(t => { typeMap[t.type] = t.count; });
+        const postCount = (typeMap.story || 0) + (typeMap.job || 0) + (typeMap.poll || 0);
+        const commentCount = typeMap.comment || 0;
+        
         document.getElementById('stats').innerHTML = `
           <div class="stat">
-            <div class="stat-value">${(stats.total_items || 0).toLocaleString()}</div>
-            <div class="stat-label">Total Items</div>
+            <div class="stat-value">${postCount.toLocaleString()}</div>
+            <div class="stat-label">Posts</div>
+            <div class="stat-sub" style="font-size: 0.75rem; color: #999;">(${commentCount.toLocaleString()} comments)</div>
           </div>
           <div class="stat">
             <div class="stat-value">${(stats.items_today || 0).toLocaleString()}</div>
@@ -345,6 +361,7 @@
 
     async function loadItems() {
       const type = document.getElementById('typeFilter').value;
+      const timeFilter = document.getElementById('timeFilter').value;
       const sortOrderValue = document.getElementById('sortOrder').value;
       const [orderBy, order] = sortOrderValue.split('-');
       
@@ -355,6 +372,16 @@
         order
       });
       if (type) params.set('type', type);
+      
+      // Calculate since timestamp based on time filter
+      if (timeFilter === 'today') {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        params.set('since', Math.floor(startOfDay.getTime() / 1000).toString());
+      } else if (timeFilter === '24h') {
+        const since = Math.floor(Date.now() / 1000) - 86400;
+        params.set('since', since.toString());
+      }
       
       try {
         document.getElementById('items').innerHTML = '<div class="loading">Loading items</div>';
@@ -525,12 +552,19 @@
       const now = new Date();
       const diff = (now - date) / 1000;
       
-      if (diff < 60) return 'just now';
-      if (diff < 3600) return Math.floor(diff / 60) + ' minutes ago';
-      if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
-      if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
+      // Format the actual time
+      const actualTime = date.toLocaleString(undefined, {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+      });
       
-      return date.toLocaleDateString();
+      let relative;
+      if (diff < 60) relative = 'just now';
+      else if (diff < 3600) relative = Math.floor(diff / 60) + ' minutes ago';
+      else if (diff < 86400) relative = Math.floor(diff / 3600) + ' hours ago';
+      else if (diff < 604800) relative = Math.floor(diff / 86400) + ' days ago';
+      else relative = date.toLocaleDateString();
+      
+      return `${relative} (${actualTime})`;
     }
 
     function formatDateTime(timestamp) {
