@@ -610,9 +610,14 @@ export async function getItems(
     const bindings: (string | number)[] = [];
     
     if (type) {
+      // Filter by specific type
       countQuery += ' WHERE type = ?';
       itemsQuery += ' WHERE type = ?';
       bindings.push(type);
+    } else {
+      // Default: exclude comments (show only posts)
+      countQuery += " WHERE type != 'comment'";
+      itemsQuery += " WHERE type != 'comment'";
     }
     
     itemsQuery += ` ORDER BY ${validOrderBy} ${validOrder} NULLS LAST LIMIT ? OFFSET ?`;
@@ -753,5 +758,318 @@ export async function getTopItems(
     return result.results || [];
   } catch (error) {
     throw new DatabaseError('Failed to get top items', 'get_top_items', error);
+  }
+}
+
+// ============================================
+// Advanced Analytics Functions
+// ============================================
+
+export interface AuthorStats {
+  by: string;
+  post_count: number;
+  story_count: number;
+  comment_count: number;
+  total_score: number;
+  avg_score: number;
+  total_comments_received: number;
+}
+
+/**
+ * Get top authors by post count
+ */
+export async function getTopAuthors(
+  db: D1Database,
+  limit: number = 20
+): Promise<AuthorStats[]> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          by,
+          COUNT(*) as post_count,
+          SUM(CASE WHEN type = 'story' THEN 1 ELSE 0 END) as story_count,
+          SUM(CASE WHEN type = 'comment' THEN 1 ELSE 0 END) as comment_count,
+          COALESCE(SUM(score), 0) as total_score,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          COALESCE(SUM(descendants), 0) as total_comments_received
+        FROM items 
+        WHERE by IS NOT NULL AND by != '' AND deleted = 0
+        GROUP BY by 
+        ORDER BY post_count DESC 
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<AuthorStats>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get top authors', 'get_top_authors', error);
+  }
+}
+
+/**
+ * Get most successful authors by average score (min 3 stories)
+ */
+export async function getSuccessfulAuthors(
+  db: D1Database,
+  limit: number = 20
+): Promise<AuthorStats[]> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          by,
+          COUNT(*) as post_count,
+          SUM(CASE WHEN type = 'story' THEN 1 ELSE 0 END) as story_count,
+          SUM(CASE WHEN type = 'comment' THEN 1 ELSE 0 END) as comment_count,
+          COALESCE(SUM(score), 0) as total_score,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          COALESCE(SUM(descendants), 0) as total_comments_received
+        FROM items 
+        WHERE by IS NOT NULL AND by != '' AND deleted = 0 AND type = 'story'
+        GROUP BY by 
+        HAVING story_count >= 2
+        ORDER BY avg_score DESC 
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<AuthorStats>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get successful authors', 'get_successful_authors', error);
+  }
+}
+
+/**
+ * Get posts per hour of day (UTC)
+ */
+export async function getPostsByHour(db: D1Database): Promise<Array<{ hour: number; count: number; avg_score: number }>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          CAST(strftime('%H', time, 'unixepoch') AS INTEGER) as hour,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score
+        FROM items 
+        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL
+        GROUP BY hour
+        ORDER BY hour
+      `)
+      .all<{ hour: number; count: number; avg_score: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get posts by hour', 'get_posts_by_hour', error);
+  }
+}
+
+/**
+ * Get posts per day of week (0=Sunday, 6=Saturday)
+ */
+export async function getPostsByDayOfWeek(db: D1Database): Promise<Array<{ day: number; day_name: string; count: number; avg_score: number }>> {
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          CAST(strftime('%w', time, 'unixepoch') AS INTEGER) as day,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score
+        FROM items 
+        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL
+        GROUP BY day
+        ORDER BY day
+      `)
+      .all<{ day: number; count: number; avg_score: number }>();
+    
+    return (result.results || []).map(r => ({
+      ...r,
+      day_name: dayNames[r.day] || 'Unknown'
+    }));
+  } catch (error) {
+    throw new DatabaseError('Failed to get posts by day of week', 'get_posts_by_day_of_week', error);
+  }
+}
+
+/**
+ * Get posts per date (last N days)
+ */
+export async function getPostsByDate(
+  db: D1Database,
+  days: number = 30
+): Promise<Array<{ date: string; count: number; avg_score: number }>> {
+  const cutoff = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+  
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          date(time, 'unixepoch') as date,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score
+        FROM items 
+        WHERE type = 'story' AND deleted = 0 AND time > ?
+        GROUP BY date
+        ORDER BY date DESC
+      `)
+      .bind(cutoff)
+      .all<{ date: string; count: number; avg_score: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get posts by date', 'get_posts_by_date', error);
+  }
+}
+
+export interface ViralPost {
+  id: number;
+  title: string | null;
+  by: string | null;
+  current_score: number;
+  first_score: number;
+  peak_score: number;
+  score_growth: number;
+  snapshot_count: number;
+  hours_tracked: number;
+}
+
+/**
+ * Get viral posts - items with highest score growth from snapshots
+ */
+export async function getViralPosts(
+  db: D1Database,
+  limit: number = 10
+): Promise<ViralPost[]> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          i.id,
+          i.title,
+          i.by,
+          i.score as current_score,
+          MIN(s.score) as first_score,
+          MAX(s.score) as peak_score,
+          (MAX(s.score) - MIN(s.score)) as score_growth,
+          COUNT(s.id) as snapshot_count,
+          ROUND((MAX(s.captured_at) - MIN(s.captured_at)) / 3600000.0, 1) as hours_tracked
+        FROM items i
+        JOIN item_snapshots s ON i.id = s.item_id
+        WHERE i.deleted = 0 AND i.type = 'story' AND s.score IS NOT NULL
+        GROUP BY i.id
+        HAVING snapshot_count > 1 AND score_growth > 0
+        ORDER BY score_growth DESC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<ViralPost>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get viral posts', 'get_viral_posts', error);
+  }
+}
+
+/**
+ * Get domain statistics - most posted domains
+ */
+export async function getTopDomains(
+  db: D1Database,
+  limit: number = 20
+): Promise<Array<{ domain: string; count: number; avg_score: number; total_score: number }>> {
+  try {
+    // SQLite doesn't have great URL parsing, so we extract domain with substr/instr
+    const result = await db
+      .prepare(`
+        SELECT 
+          CASE 
+            WHEN url LIKE 'https://%' THEN 
+              SUBSTR(url, 9, 
+                CASE 
+                  WHEN INSTR(SUBSTR(url, 9), '/') > 0 THEN INSTR(SUBSTR(url, 9), '/') - 1
+                  ELSE LENGTH(SUBSTR(url, 9))
+                END
+              )
+            WHEN url LIKE 'http://%' THEN 
+              SUBSTR(url, 8, 
+                CASE 
+                  WHEN INSTR(SUBSTR(url, 8), '/') > 0 THEN INSTR(SUBSTR(url, 8), '/') - 1
+                  ELSE LENGTH(SUBSTR(url, 8))
+                END
+              )
+            ELSE url
+          END as domain,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          COALESCE(SUM(score), 0) as total_score
+        FROM items 
+        WHERE type = 'story' AND deleted = 0 AND url IS NOT NULL AND url != ''
+        GROUP BY domain
+        HAVING count >= 2
+        ORDER BY count DESC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<{ domain: string; count: number; avg_score: number; total_score: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get top domains', 'get_top_domains', error);
+  }
+}
+
+/**
+ * Get overall archive statistics summary
+ */
+export async function getDetailedStats(db: D1Database): Promise<{
+  total_stories: number;
+  total_comments: number;
+  total_authors: number;
+  avg_story_score: number;
+  avg_comments_per_story: number;
+  total_snapshots: number;
+  oldest_item_time: number | null;
+  newest_item_time: number | null;
+}> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          (SELECT COUNT(*) FROM items WHERE type = 'story') as total_stories,
+          (SELECT COUNT(*) FROM items WHERE type = 'comment') as total_comments,
+          (SELECT COUNT(DISTINCT by) FROM items WHERE by IS NOT NULL) as total_authors,
+          (SELECT ROUND(COALESCE(AVG(score), 0), 1) FROM items WHERE type = 'story') as avg_story_score,
+          (SELECT ROUND(COALESCE(AVG(descendants), 0), 1) FROM items WHERE type = 'story') as avg_comments_per_story,
+          (SELECT COUNT(*) FROM item_snapshots) as total_snapshots,
+          (SELECT MIN(time) FROM items WHERE time IS NOT NULL) as oldest_item_time,
+          (SELECT MAX(time) FROM items WHERE time IS NOT NULL) as newest_item_time
+      `)
+      .first<{
+        total_stories: number;
+        total_comments: number;
+        total_authors: number;
+        avg_story_score: number;
+        avg_comments_per_story: number;
+        total_snapshots: number;
+        oldest_item_time: number | null;
+        newest_item_time: number | null;
+      }>();
+    
+    return result || {
+      total_stories: 0,
+      total_comments: 0,
+      total_authors: 0,
+      avg_story_score: 0,
+      avg_comments_per_story: 0,
+      total_snapshots: 0,
+      oldest_item_time: null,
+      newest_item_time: null
+    };
+  } catch (error) {
+    throw new DatabaseError('Failed to get detailed stats', 'get_detailed_stats', error);
   }
 }

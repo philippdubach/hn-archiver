@@ -30,7 +30,7 @@ Build a comprehensive HN archiving system using Cloudflare Workers + D1 that cap
 | D1 Reads | 16,800 | 0.3% | Composite indexes, single-query upserts |
 | Storage | ~2GB/year | 40%/year | JSON compression for `kids`, prune after 5 years |
 
-**Result**: 89% headroom for growth, sub-second latency ✅
+**Result**: 89% headroom for growth, sub-second latency
 
 ---
 
@@ -566,7 +566,7 @@ export function shouldCreateSnapshot(
 
 ### Health Checks
 - **Daily stats endpoint**: Shows items archived, gaps detected, last run times
-- **Alerting**: If items_processed < 100/day for 3 consecutive days → investigate
+- **Alerting**: If items_processed < 100/day for 3 consecutive days, investigate
 - **Storage monitoring**: Track DB size weekly, project when approaching 5GB
 
 ---
@@ -585,7 +585,7 @@ export function shouldCreateSnapshot(
 
 ## Implementation Order
 
-1. ✅ Schema + indexes (enables all other work)
+1. Schema + indexes (enables all other work)
 2. HN API client + batching
 3. DB layer with single-query upserts
 4. Discovery worker (proves architecture)
@@ -602,4 +602,4 @@ export function shouldCreateSnapshot(
 
 **Free tier headroom**: 89% (future-proof for 3+ years)
 
-**Performance**: Sub-second response times, near real-time archiving ✅
+**Performance**: Sub-second response times, near real-time archiving

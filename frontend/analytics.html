@@ -12,7 +12,7 @@
       color: #333; 
       line-height: 1.5; 
     }
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
     header { 
       background: #ff6600; 
       color: white; 
@@ -35,7 +35,7 @@
     nav a.active { background: rgba(255,255,255,0.3); }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 20px;
       margin-bottom: 20px;
     }
@@ -46,29 +46,30 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     .card h2 {
-      font-size: 1rem;
+      font-size: 0.9rem;
       color: #666;
       margin-bottom: 15px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .card.full { grid-column: 1 / -1; }
+    .card.half { grid-column: span 1; }
     .overview-stats {
       display: flex;
       justify-content: space-around;
       flex-wrap: wrap;
-      gap: 20px;
+      gap: 30px;
     }
     .stat { text-align: center; }
-    .stat-value { font-size: 2.5rem; font-weight: bold; color: #ff6600; }
+    .stat-value { font-size: 2rem; font-weight: bold; color: #ff6600; }
     .stat-label { font-size: 0.85rem; color: #666; margin-top: 4px; }
     .stat-sub { font-size: 0.75rem; color: #999; margin-top: 2px; }
-    .bar-chart { display: flex; flex-direction: column; gap: 10px; }
+    .bar-chart { display: flex; flex-direction: column; gap: 8px; }
     .bar-row { display: flex; align-items: center; gap: 10px; }
-    .bar-label { min-width: 80px; font-size: 0.9rem; }
+    .bar-label { min-width: 70px; font-size: 0.85rem; color: #666; text-align: right; }
     .bar-container { 
       flex: 1; 
-      height: 28px; 
+      height: 24px; 
       background: #f0f0f0; 
       border-radius: 4px; 
       overflow: hidden;
@@ -82,67 +83,51 @@
       justify-content: flex-end;
       padding-right: 8px;
       color: white;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 500;
-      min-width: 30px;
+      min-width: 25px;
+      transition: width 0.3s ease;
     }
-    .bar.story { background: linear-gradient(90deg, #ff6600, #ff8533); }
-    .bar.comment { background: linear-gradient(90deg, #0066cc, #3399ff); }
-    .bar.job { background: linear-gradient(90deg, #28a745, #5fd37c); }
-    .bar.poll { background: linear-gradient(90deg, #6f42c1, #a07be5); }
-    .top-items { list-style: none; }
-    .top-items li {
-      padding: 12px 0;
+    .bar.blue { background: linear-gradient(90deg, #0066cc, #3399ff); }
+    .bar.green { background: linear-gradient(90deg, #28a745, #5fd37c); }
+    .bar.purple { background: linear-gradient(90deg, #6f42c1, #a07be5); }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .data-table th, .data-table td {
+      padding: 10px 8px;
+      text-align: left;
       border-bottom: 1px solid #eee;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
-    .top-items li:last-child { border-bottom: none; }
-    .top-items .rank { 
-      color: #999; 
-      font-weight: 500; 
-      min-width: 30px;
+    .data-table th {
+      font-weight: 600;
+      color: #666;
+      font-size: 0.75rem;
+      text-transform: uppercase;
     }
-    .top-items .title { 
-      flex: 1; 
-      margin: 0 15px;
+    .data-table tr:hover { background: #fafafa; }
+    .data-table .rank { color: #999; width: 30px; }
+    .data-table .author { color: #ff6600; font-weight: 500; }
+    .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .data-table .title-cell {
+      max-width: 250px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    .top-items .title a { color: #333; text-decoration: none; }
-    .top-items .title a:hover { color: #ff6600; }
-    .top-items .value { 
-      font-weight: bold; 
-      color: #ff6600;
-      min-width: 60px;
-      text-align: right;
-    }
-    .metrics-table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    .metrics-table th, .metrics-table td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid #eee;
-    }
-    .metrics-table th {
-      font-weight: 600;
-      color: #666;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-    }
-    .metrics-table tr:hover { background: #fafafa; }
-    .status-badge {
-      padding: 3px 8px;
-      border-radius: 4px;
-      font-size: 0.75rem;
+    .data-table a { color: #333; text-decoration: none; }
+    .data-table a:hover { color: #ff6600; }
+    .status { 
+      padding: 4px 10px; 
+      border-radius: 4px; 
+      font-size: 0.8rem; 
       font-weight: 500;
     }
-    .status-badge.success { background: #d4edda; color: #155724; }
-    .status-badge.error { background: #f8d7da; color: #721c24; }
+    .status.healthy { background: #d4edda; color: #155724; }
+    .status.degraded { background: #fff3cd; color: #856404; }
+    .status.unhealthy { background: #f8d7da; color: #721c24; }
     .loading { 
       text-align: center; 
       padding: 40px 20px; 
@@ -161,35 +146,12 @@
       vertical-align: middle;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .empty { text-align: center; padding: 40px 20px; color: #999; }
-    .error-msg {
-      background: #f8d7da;
-      color: #721c24;
-      padding: 15px 20px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-    }
-    .refresh-btn {
-      padding: 8px 16px;
-      background: #ff6600;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
-    .refresh-btn:hover { background: #e55a00; }
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-    }
-    .card-header h2 { margin-bottom: 0; }
+    .empty { text-align: center; padding: 30px 20px; color: #999; font-size: 0.9rem; }
     .tabs {
       display: flex;
       gap: 5px;
       margin-bottom: 15px;
+      flex-wrap: wrap;
     }
     .tab {
       padding: 6px 12px;
@@ -197,25 +159,103 @@
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
     }
     .tab:hover { background: #e0e0e0; }
     .tab.active { background: #ff6600; color: white; }
-    .snapshot-reasons { margin-top: 15px; }
-    .reason-row { 
-      display: flex; 
-      justify-content: space-between; 
-      padding: 8px 0;
-      border-bottom: 1px solid #eee;
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
-    .reason-row:last-child { border-bottom: none; }
-    .reason-name { color: #666; }
-    .reason-count { font-weight: 600; color: #333; }
+    .card-header h2 { margin-bottom: 0; }
+    .insight-box {
+      background: #fff8f0;
+      border-left: 4px solid #ff6600;
+      padding: 15px;
+      margin-top: 15px;
+      border-radius: 0 8px 8px 0;
+    }
+    .insight-box h3 {
+      font-size: 0.85rem;
+      color: #ff6600;
+      margin-bottom: 8px;
+    }
+    .insight-box p {
+      font-size: 0.85rem;
+      color: #666;
+      margin: 5px 0;
+    }
+    .insight-box .highlight {
+      color: #ff6600;
+      font-weight: 600;
+    }
+    .hour-grid {
+      display: grid;
+      grid-template-columns: repeat(24, 1fr);
+      gap: 2px;
+    }
+    .hour-cell {
+      aspect-ratio: 1;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      color: white;
+      cursor: default;
+      position: relative;
+    }
+    .hour-cell:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      z-index: 10;
+    }
+    .day-labels {
+      display: grid;
+      grid-template-columns: repeat(24, 1fr);
+      gap: 2px;
+      margin-top: 5px;
+    }
+    .day-label {
+      text-align: center;
+      font-size: 0.65rem;
+      color: #999;
+    }
+    .refresh-btn {
+      padding: 6px 12px;
+      background: #ff6600;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .refresh-btn:hover { background: #e55a00; }
+    .section-title {
+      font-size: 1.1rem;
+      color: #333;
+      margin: 30px 0 15px 0;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #ff6600;
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>📊 HN Archive Analytics</h1>
+    <h1>HN Archive Analytics</h1>
     <nav>
       <a href="index.html">Archive</a>
       <a href="analytics.html" class="active">Analytics</a>
@@ -223,53 +263,113 @@
   </header>
   
   <div class="container">
+    <!-- Overview Section -->
     <div class="grid">
-      <!-- Overview Stats -->
       <div class="card full">
-        <h2>Overview</h2>
+        <div class="card-header">
+          <h2>Archive Overview</h2>
+          <button class="refresh-btn" onclick="loadAll()">Refresh All</button>
+        </div>
         <div class="overview-stats" id="overview">
           <div class="loading">Loading stats</div>
         </div>
       </div>
-      
-      <!-- Type Distribution -->
+    </div>
+
+    <!-- Time-Based Analytics -->
+    <h3 class="section-title">Posting Patterns</h3>
+    <div class="grid">
       <div class="card">
-        <h2>Item Distribution by Type</h2>
+        <h2>Posts by Hour (UTC)</h2>
+        <div id="hourChart">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="hourInsight"></div>
+      </div>
+      
+      <div class="card">
+        <h2>Posts by Day of Week</h2>
+        <div id="dayChart">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="dayInsight"></div>
+      </div>
+    </div>
+
+    <!-- Author Analytics -->
+    <h3 class="section-title">Author Analytics</h3>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Top Contributors</h2>
+          <div class="tabs">
+            <button class="tab active" onclick="switchAuthorTab('volume', this)">By Volume</button>
+            <button class="tab" onclick="switchAuthorTab('success', this)">By Success</button>
+          </div>
+        </div>
+        <div id="authorTable">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>Top Domains</h2>
+        <div id="domainTable">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content Analytics -->
+    <h3 class="section-title">Content Performance</h3>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Top Posts</h2>
+          <div class="tabs">
+            <button class="tab active" onclick="switchTopTab('score', this)">By Points</button>
+            <button class="tab" onclick="switchTopTab('descendants', this)">By Comments</button>
+          </div>
+        </div>
+        <div id="topItems">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <h2>Viral Posts (Score Growth)</h2>
+        <div id="viralPosts">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="viralInsight"></div>
+      </div>
+    </div>
+
+    <!-- System Metrics -->
+    <h3 class="section-title">System Performance</h3>
+    <div class="grid">
+      <div class="card">
+        <h2>Item Distribution</h2>
         <div class="bar-chart" id="typeChart">
           <div class="loading">Loading</div>
         </div>
       </div>
       
-      <!-- Snapshot Reasons -->
       <div class="card">
-        <h2>Snapshot Reasons</h2>
-        <div class="snapshot-reasons" id="snapshotReasons">
-          <div class="loading">Loading</div>
-        </div>
-      </div>
-      
-      <!-- Top Items by Score -->
-      <div class="card">
-        <div class="card-header">
-          <h2>Top Items</h2>
-          <div class="tabs">
-            <button class="tab active" onclick="switchTopTab('score', this)">By Score</button>
-            <button class="tab" onclick="switchTopTab('descendants', this)">By Comments</button>
-          </div>
-        </div>
-        <ul class="top-items" id="topItems">
-          <div class="loading">Loading</div>
-        </ul>
-      </div>
-      
-      <!-- Recent Metrics -->
-      <div class="card full">
-        <div class="card-header">
-          <h2>Recent Worker Runs</h2>
-          <button class="refresh-btn" onclick="loadMetrics()">Refresh</button>
-        </div>
+        <h2>Recent Worker Runs</h2>
         <div id="metricsTable">
-          <div class="loading">Loading metrics</div>
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Insights Summary -->
+    <h3 class="section-title">Key Insights</h3>
+    <div class="grid">
+      <div class="card full">
+        <h2>What Makes a Successful Post?</h2>
+        <div id="successInsights">
+          <div class="loading">Analyzing data</div>
         </div>
       </div>
     </div>
@@ -277,18 +377,32 @@
 
   <script>
     const API_BASE = 'https://hn-archiver.philippd.workers.dev';
+    let analyticsData = {};
     let topItemsData = { score: [], descendants: [] };
-    
+    let authorData = { volume: [], success: [] };
+
+    async function loadAll() {
+      await Promise.all([
+        loadOverview(),
+        loadBasicAnalytics(),
+        loadAdvancedAnalytics(),
+        loadMetrics()
+      ]);
+      generateInsights();
+    }
+
     async function loadOverview() {
       try {
-        const [health, stats] = await Promise.all([
+        const [health, stats, advanced] = await Promise.all([
           fetch(`${API_BASE}/health`).then(r => r.json()),
-          fetch(`${API_BASE}/stats`).then(r => r.json())
+          fetch(`${API_BASE}/stats`).then(r => r.json()),
+          fetch(`${API_BASE}/api/advanced-analytics`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
         
-        const uptime = stats.oldest_item_time 
-          ? Math.floor((Date.now() / 1000 - stats.oldest_item_time) / 86400)
-          : 0;
+        const detailed = advanced?.detailedStats || {};
+        const trackingDays = detailed.oldest_item_time 
+          ? Math.max(1, Math.floor((Date.now() / 1000 - detailed.oldest_item_time) / 86400))
+          : 1;
         
         document.getElementById('overview').innerHTML = `
           <div class="stat">
@@ -297,129 +411,328 @@
             <div class="stat-sub">${(stats.items_today || 0).toLocaleString()} today</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${(stats.total_snapshots || 0).toLocaleString()}</div>
-            <div class="stat-label">Snapshots</div>
-            <div class="stat-sub">${(stats.snapshots_today || 0).toLocaleString()} today</div>
+            <div class="stat-value">${(detailed.total_stories || 0).toLocaleString()}</div>
+            <div class="stat-label">Stories</div>
+            <div class="stat-sub">${detailed.avg_story_score || 0} avg score</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${uptime}</div>
-            <div class="stat-label">Days Tracking</div>
-            <div class="stat-sub">since ${stats.oldest_item_time ? new Date(stats.oldest_item_time * 1000).toLocaleDateString() : 'N/A'}</div>
+            <div class="stat-value">${(detailed.total_comments || 0).toLocaleString()}</div>
+            <div class="stat-label">Comments</div>
+            <div class="stat-sub">${detailed.avg_comments_per_story || 0} avg/story</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${(stats.max_item_id || 0).toLocaleString()}</div>
-            <div class="stat-label">Latest HN ID</div>
-            <div class="stat-sub">tracking ${(stats.max_archived_id || 0).toLocaleString()}</div>
+            <div class="stat-value">${(detailed.total_authors || 0).toLocaleString()}</div>
+            <div class="stat-label">Authors</div>
+            <div class="stat-sub">unique posters</div>
           </div>
           <div class="stat">
-            <div class="stat-value ${health.status}">${health.status.toUpperCase()}</div>
+            <div class="stat-value">${trackingDays}</div>
+            <div class="stat-label">Days Tracked</div>
+            <div class="stat-sub">${detailed.total_snapshots || 0} snapshots</div>
+          </div>
+          <div class="stat">
+            <span class="status ${health.status}">${health.status.toUpperCase()}</span>
             <div class="stat-label">System Health</div>
-            <div class="stat-sub">${health.lastDiscovery ? formatTimeAgo(health.lastDiscovery) : 'unknown'} since last run</div>
+            <div class="stat-sub">${formatDateTime(health.last_run?.discovery)}</div>
           </div>
         `;
+        
+        analyticsData.detailed = detailed;
       } catch (e) {
         console.error('Failed to load overview:', e);
-        document.getElementById('overview').innerHTML = `
-          <div class="empty">Failed to load overview stats</div>
-        `;
+        document.getElementById('overview').innerHTML = '<div class="empty">Failed to load overview</div>';
       }
     }
-    
-    async function loadTypeDistribution() {
+
+    async function loadBasicAnalytics() {
       try {
         const response = await fetch(`${API_BASE}/api/analytics`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
+        
+        // Type distribution
         const typeData = data.typeDistribution || [];
-        
-        if (!typeData.length) {
-          document.getElementById('typeChart').innerHTML = '<div class="empty">No data</div>';
-          return;
-        }
-        
-        const total = typeData.reduce((sum, t) => sum + (t.count || 0), 0);
-        const maxCount = Math.max(...typeData.map(t => t.count || 0));
-        
-        document.getElementById('typeChart').innerHTML = typeData.map(t => {
-          const pct = total > 0 ? ((t.count / total) * 100).toFixed(1) : 0;
-          const width = maxCount > 0 ? ((t.count / maxCount) * 100) : 0;
-          return `
-            <div class="bar-row">
-              <span class="bar-label">${t.type || 'unknown'}</span>
-              <div class="bar-container">
-                <div class="bar ${t.type}" style="width: ${width}%">${t.count?.toLocaleString()}</div>
+        if (typeData.length) {
+          const maxCount = Math.max(...typeData.map(t => t.count || 0));
+          document.getElementById('typeChart').innerHTML = typeData.map(t => {
+            const width = maxCount > 0 ? ((t.count / maxCount) * 100) : 0;
+            const colors = { story: '', comment: 'blue', job: 'green', poll: 'purple' };
+            return `
+              <div class="bar-row">
+                <span class="bar-label">${t.type || 'unknown'}</span>
+                <div class="bar-container">
+                  <div class="bar ${colors[t.type] || ''}" style="width: ${width}%">${t.count?.toLocaleString()}</div>
+                </div>
               </div>
-              <span style="min-width: 50px; text-align: right; color: #666; font-size: 0.85rem">${pct}%</span>
-            </div>
-          `;
-        }).join('');
-        
-        // Also load snapshot reasons from same endpoint
-        const reasonData = data.snapshotReasons || [];
-        if (reasonData.length) {
-          document.getElementById('snapshotReasons').innerHTML = reasonData.map(r => `
-            <div class="reason-row">
-              <span class="reason-name">${formatReason(r.reason)}</span>
-              <span class="reason-count">${(r.count || 0).toLocaleString()}</span>
-            </div>
-          `).join('');
-        } else {
-          document.getElementById('snapshotReasons').innerHTML = '<div class="empty">No snapshot data</div>';
+            `;
+          }).join('');
         }
         
-        // Load top items
+        // Top items
         topItemsData.score = data.topByScore || [];
         topItemsData.descendants = data.topByComments || [];
         renderTopItems('score');
         
       } catch (e) {
-        console.error('Failed to load type distribution:', e);
-        document.getElementById('typeChart').innerHTML = `
-          <div class="empty">Failed to load. Make sure /api/analytics endpoint is added.</div>
-        `;
-        document.getElementById('snapshotReasons').innerHTML = '<div class="empty">No data</div>';
+        console.error('Failed to load basic analytics:', e);
       }
     }
-    
-    function formatReason(reason) {
-      const names = {
-        'initial': 'Initial Capture',
-        'score_change': 'Score Change',
-        'score_spike': 'Score Spike',
-        'periodic': 'Periodic Snapshot',
-        'metadata_change': 'Metadata Change'
-      };
-      return names[reason] || reason || 'Unknown';
+
+    async function loadAdvancedAnalytics() {
+      try {
+        const response = await fetch(`${API_BASE}/api/advanced-analytics`);
+        if (!response.ok) throw new Error('API request failed');
+        
+        const data = await response.json();
+        analyticsData = { ...analyticsData, ...data };
+        
+        // Posts by hour
+        renderHourChart(data.postsByHour || []);
+        
+        // Posts by day
+        renderDayChart(data.postsByDayOfWeek || []);
+        
+        // Authors
+        authorData.volume = data.topAuthors || [];
+        authorData.success = data.successfulAuthors || [];
+        renderAuthorTable('volume');
+        
+        // Domains
+        renderDomainTable(data.topDomains || []);
+        
+        // Viral posts
+        renderViralPosts(data.viralPosts || []);
+        
+      } catch (e) {
+        console.error('Failed to load advanced analytics:', e);
+        document.getElementById('hourChart').innerHTML = '<div class="empty">Advanced analytics endpoint not available</div>';
+        document.getElementById('dayChart').innerHTML = '<div class="empty">Add /api/advanced-analytics to worker</div>';
+      }
     }
-    
+
+    function renderHourChart(data) {
+      if (!data.length) {
+        document.getElementById('hourChart').innerHTML = '<div class="empty">No data yet</div>';
+        return;
+      }
+      
+      const maxCount = Math.max(...data.map(d => d.count || 0));
+      const bestHour = data.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, data[0]);
+      
+      // Fill in missing hours
+      const hourMap = new Map(data.map(d => [d.hour, d]));
+      const hours = Array.from({ length: 24 }, (_, i) => hourMap.get(i) || { hour: i, count: 0, avg_score: 0 });
+      
+      document.getElementById('hourChart').innerHTML = `
+        <div class="hour-grid">
+          ${hours.map(h => {
+            const intensity = maxCount > 0 ? Math.floor((h.count / maxCount) * 255) : 0;
+            const bg = `rgb(255, ${255 - intensity * 0.6}, ${255 - intensity})`;
+            return `<div class="hour-cell" style="background: ${bg}" data-tooltip="${h.hour}:00 - ${h.count} posts, ${h.avg_score} avg">${h.hour}</div>`;
+          }).join('')}
+        </div>
+        <div class="day-labels">
+          ${Array.from({ length: 24 }, (_, i) => `<span class="day-label">${i % 6 === 0 ? i + ':00' : ''}</span>`).join('')}
+        </div>
+      `;
+      
+      document.getElementById('hourInsight').innerHTML = `
+        <div class="insight-box">
+          <h3>Best Posting Time</h3>
+          <p>Posts at <span class="highlight">${bestHour.hour}:00 UTC</span> have the highest average score (<span class="highlight">${bestHour.avg_score}</span> points)</p>
+        </div>
+      `;
+    }
+
+    function renderDayChart(data) {
+      if (!data.length) {
+        document.getElementById('dayChart').innerHTML = '<div class="empty">No data yet</div>';
+        return;
+      }
+      
+      const maxCount = Math.max(...data.map(d => d.count || 0));
+      const bestDay = data.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, data[0]);
+      
+      document.getElementById('dayChart').innerHTML = `
+        <div class="bar-chart">
+          ${data.map(d => {
+            const width = maxCount > 0 ? ((d.count / maxCount) * 100) : 0;
+            return `
+              <div class="bar-row">
+                <span class="bar-label">${d.day_name?.slice(0, 3) || 'Day ' + d.day}</span>
+                <div class="bar-container">
+                  <div class="bar" style="width: ${width}%">${d.count}</div>
+                </div>
+                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">${d.avg_score} avg</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+      
+      document.getElementById('dayInsight').innerHTML = `
+        <div class="insight-box">
+          <h3>Best Day to Post</h3>
+          <p><span class="highlight">${bestDay.day_name || 'Day ' + bestDay.day}</span> posts have the highest average score (<span class="highlight">${bestDay.avg_score}</span> points)</p>
+        </div>
+      `;
+    }
+
+    function renderAuthorTable(type) {
+      const authors = authorData[type] || [];
+      if (!authors.length) {
+        document.getElementById('authorTable').innerHTML = '<div class="empty">No author data yet</div>';
+        return;
+      }
+      
+      const isSuccess = type === 'success';
+      document.getElementById('authorTable').innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="rank">#</th>
+              <th>Author</th>
+              <th class="num">Posts</th>
+              <th class="num">${isSuccess ? 'Avg Score' : 'Total Score'}</th>
+              <th class="num">Comments</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${authors.slice(0, 10).map((a, i) => `
+              <tr>
+                <td class="rank">${i + 1}</td>
+                <td class="author">${escapeHtml(a.by)}</td>
+                <td class="num">${a.story_count || a.post_count || 0}</td>
+                <td class="num">${isSuccess ? a.avg_score : a.total_score}</td>
+                <td class="num">${a.total_comments_received || 0}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function switchAuthorTab(type, btn) {
+      document.querySelectorAll('.card-header .tabs .tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      renderAuthorTable(type);
+    }
+
+    function renderDomainTable(domains) {
+      if (!domains.length) {
+        document.getElementById('domainTable').innerHTML = '<div class="empty">No domain data yet</div>';
+        return;
+      }
+      
+      document.getElementById('domainTable').innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="rank">#</th>
+              <th>Domain</th>
+              <th class="num">Posts</th>
+              <th class="num">Avg Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${domains.slice(0, 10).map((d, i) => `
+              <tr>
+                <td class="rank">${i + 1}</td>
+                <td>${escapeHtml(d.domain)}</td>
+                <td class="num">${d.count}</td>
+                <td class="num">${d.avg_score}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
     function renderTopItems(type) {
       const items = topItemsData[type] || [];
-      
       if (!items.length) {
         document.getElementById('topItems').innerHTML = '<div class="empty">No items found</div>';
         return;
       }
       
-      document.getElementById('topItems').innerHTML = items.map((item, i) => `
-        <li>
-          <span class="rank">${i + 1}.</span>
-          <span class="title">
-            <a href="https://news.ycombinator.com/item?id=${item.id}" target="_blank" rel="noopener">
-              ${escapeHtml(item.title || `[${item.type}]`)}
-            </a>
-          </span>
-          <span class="value">${type === 'score' ? (item.score || 0) + ' ▲' : (item.descendants || 0) + ' 💬'}</span>
-        </li>
-      `).join('');
+      document.getElementById('topItems').innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="rank">#</th>
+              <th>Title</th>
+              <th class="num">${type === 'score' ? 'Points' : 'Comments'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map((item, i) => `
+              <tr>
+                <td class="rank">${i + 1}</td>
+                <td class="title-cell">
+                  <a href="https://news.ycombinator.com/item?id=${item.id}" target="_blank" rel="noopener">
+                    ${escapeHtml(item.title || `[${item.type}]`)}
+                  </a>
+                </td>
+                <td class="num">${type === 'score' ? (item.score || 0) : (item.descendants || 0)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
     }
-    
+
     function switchTopTab(type, btn) {
-      document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+      btn.parentElement.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
       renderTopItems(type);
     }
-    
+
+    function renderViralPosts(posts) {
+      if (!posts.length) {
+        document.getElementById('viralPosts').innerHTML = '<div class="empty">Not enough snapshot data yet. Viral detection improves as more data is collected.</div>';
+        document.getElementById('viralInsight').innerHTML = '';
+        return;
+      }
+      
+      document.getElementById('viralPosts').innerHTML = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="rank">#</th>
+              <th>Title</th>
+              <th class="num">Growth</th>
+              <th class="num">Peak</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${posts.slice(0, 8).map((p, i) => `
+              <tr>
+                <td class="rank">${i + 1}</td>
+                <td class="title-cell">
+                  <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
+                    ${escapeHtml(p.title || '[untitled]')}
+                  </a>
+                </td>
+                <td class="num">+${p.score_growth}</td>
+                <td class="num">${p.peak_score}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      
+      const topViral = posts[0];
+      if (topViral) {
+        document.getElementById('viralInsight').innerHTML = `
+          <div class="insight-box">
+            <h3>Fastest Growing</h3>
+            <p>"${escapeHtml((topViral.title || '').slice(0, 50))}..." grew <span class="highlight">+${topViral.score_growth} points</span> over ${topViral.hours_tracked || '?'} hours</p>
+          </div>
+        `;
+      }
+    }
+
     async function loadMetrics() {
       try {
         const response = await fetch(`${API_BASE}/api/metrics`);
@@ -433,30 +746,22 @@
         }
         
         document.getElementById('metricsTable').innerHTML = `
-          <table class="metrics-table">
+          <table class="data-table">
             <thead>
               <tr>
                 <th>Worker</th>
-                <th>Run Time</th>
-                <th>Duration</th>
-                <th>Items</th>
-                <th>Errors</th>
-                <th>Status</th>
+                <th>Time</th>
+                <th class="num">Items</th>
+                <th class="num">Duration</th>
               </tr>
             </thead>
             <tbody>
-              ${metrics.slice(0, 20).map(m => `
+              ${metrics.slice(0, 8).map(m => `
                 <tr>
                   <td>${m.worker_type || 'unknown'}</td>
                   <td>${formatTimeAgo(m.started_at)}</td>
-                  <td>${m.duration_ms ? (m.duration_ms / 1000).toFixed(1) + 's' : '-'}</td>
-                  <td>${(m.items_processed || 0).toLocaleString()}</td>
-                  <td>${m.errors || 0}</td>
-                  <td>
-                    <span class="status-badge ${m.status === 'completed' ? 'success' : 'error'}">
-                      ${m.status || 'unknown'}
-                    </span>
-                  </td>
+                  <td class="num">${m.items_processed || 0}</td>
+                  <td class="num">${m.duration_ms ? (m.duration_ms / 1000).toFixed(1) + 's' : '-'}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -464,22 +769,71 @@
         `;
       } catch (e) {
         console.error('Failed to load metrics:', e);
-        document.getElementById('metricsTable').innerHTML = `
-          <div class="empty">Failed to load metrics. Make sure /api/metrics endpoint is added.</div>
-        `;
+        document.getElementById('metricsTable').innerHTML = '<div class="empty">Failed to load metrics</div>';
       }
     }
-    
+
+    function generateInsights() {
+      const detailed = analyticsData.detailed || {};
+      const postsByHour = analyticsData.postsByHour || [];
+      const postsByDay = analyticsData.postsByDayOfWeek || [];
+      const topAuthors = analyticsData.topAuthors || [];
+      const successfulAuthors = analyticsData.successfulAuthors || [];
+      const viralPosts = analyticsData.viralPosts || [];
+      
+      const insights = [];
+      
+      // Best posting time
+      if (postsByHour.length) {
+        const bestHour = postsByHour.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a);
+        insights.push(`<p><strong>Optimal posting time:</strong> ${bestHour.hour}:00 UTC yields the highest average score (${bestHour.avg_score} points)</p>`);
+      }
+      
+      // Best day
+      if (postsByDay.length) {
+        const bestDay = postsByDay.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a);
+        insights.push(`<p><strong>Best day to post:</strong> ${bestDay.day_name} submissions perform best with ${bestDay.avg_score} avg points</p>`);
+      }
+      
+      // Top performer pattern
+      if (successfulAuthors.length > 0) {
+        const top = successfulAuthors[0];
+        insights.push(`<p><strong>Top performer:</strong> ${escapeHtml(top.by)} averages ${top.avg_score} points per story with ${top.story_count} stories</p>`);
+      }
+      
+      // Engagement stats
+      if (detailed.avg_comments_per_story) {
+        insights.push(`<p><strong>Engagement:</strong> Stories receive ${detailed.avg_comments_per_story} comments on average</p>`);
+      }
+      
+      // Viral indicator
+      if (viralPosts.length > 0) {
+        const avgGrowth = viralPosts.reduce((sum, p) => sum + (p.score_growth || 0), 0) / viralPosts.length;
+        insights.push(`<p><strong>Viral threshold:</strong> Top viral posts gained ${Math.round(avgGrowth)}+ points during tracking</p>`);
+      }
+      
+      if (insights.length === 0) {
+        insights.push('<p>Not enough data to generate insights yet. Keep archiving to unlock analytics!</p>');
+      }
+      
+      document.getElementById('successInsights').innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
+          ${insights.map(i => `<div class="insight-box">${i}</div>`).join('')}
+        </div>
+      `;
+    }
+
     function escapeHtml(str) {
       if (!str) return '';
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
     }
-    
+
     function formatTimeAgo(timestamp) {
       if (!timestamp) return 'unknown';
-      const date = new Date(timestamp);
+      const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const date = new Date(ts);
       const now = new Date();
       const diff = (now - date) / 1000;
       
@@ -488,11 +842,18 @@
       if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
       return Math.floor(diff / 86400) + 'd ago';
     }
-    
+
+    function formatDateTime(timestamp) {
+      if (!timestamp) return 'Never';
+      const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const date = new Date(ts);
+      return date.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
     // Initialize
-    loadOverview();
-    loadTypeDistribution();
-    loadMetrics();
+    loadAll();
   </script>
 </body>
 </html>

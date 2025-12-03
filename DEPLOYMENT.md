@@ -23,7 +23,7 @@ npx wrangler d1 create hn-archiver
 
 **Important**: Copy the `database_id` from the output. It looks like:
 ```
-✅ Successfully created DB 'hn-archiver' in region WEUR
+Successfully created DB 'hn-archiver' in region WEUR
 Created your database using D1's new storage backend.
 
 [[d1_databases]]
@@ -159,13 +159,13 @@ curl https://hn-archiver.your-subdomain.workers.dev/stats
 
 ### Set Up Monitoring
 
-1. **Enable Analytics**: Go to Workers dashboard → Analytics
+1. **Enable Analytics**: Go to Workers dashboard > Analytics
 2. **Set Up Alerts**: Configure email alerts for errors in Cloudflare dashboard
 3. **External Monitoring**: Use a service like UptimeRobot to ping `/health` every 5 minutes
 
 ### Optional: Custom Domain
 
-1. Go to Workers & Pages → hn-archiver → Settings → Domains & Routes
+1. Go to Workers & Pages > hn-archiver > Settings > Domains & Routes
 2. Add custom domain (e.g., `hn-archive.yourdomain.com`)
 3. Update DNS as instructed
 

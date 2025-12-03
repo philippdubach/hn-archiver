@@ -11,7 +11,7 @@
 - **HN API Integration**: Firebase-hosted REST API at `https://hacker-news.firebaseio.com/v0/` with no rate limits
 
 ### Data Flow
-1. Scheduled Worker cron trigger → HN API calls (stories, items, comments)
+1. Scheduled Worker cron trigger -> HN API calls (stories, items, comments)
 2. Parse and transform HN JSON responses
 3. Upsert into D1 database (idempotent)
 4. Track changes via `updated_at` timestamps to avoid re-processing
@@ -151,7 +151,7 @@ wrangler.toml        # Cloudflare Worker config
 ## Deployment
 
 ### Production Deployment
-- Push to main branch → automatically deploy via GitHub Actions (if configured)
+- Push to main branch - automatically deploy via GitHub Actions (if configured)
 - Or use `wrangler publish` manually
 - Verify Worker is running: Check Cloudflare Workers dashboard, verify cron jobs executed
 - Monitor with `wrangler tail` immediately after deploy to catch errors

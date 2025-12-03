@@ -19,6 +19,14 @@ import {
   getTypeDistribution,
   getSnapshotReasons,
   getTopItems,
+  getTopAuthors,
+  getSuccessfulAuthors,
+  getPostsByHour,
+  getPostsByDayOfWeek,
+  getPostsByDate,
+  getViralPosts,
+  getTopDomains,
+  getDetailedStats,
 } from './db';
 import { getCurrentTimestampMs } from './utils';
 
@@ -209,6 +217,42 @@ export default {
           snapshotReasons,
           topByScore,
           topByComments,
+        }), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Advanced analytics data
+      if (path === '/api/advanced-analytics') {
+        const [
+          detailedStats,
+          topAuthors,
+          successfulAuthors,
+          postsByHour,
+          postsByDayOfWeek,
+          postsByDate,
+          viralPosts,
+          topDomains,
+        ] = await Promise.all([
+          getDetailedStats(env.DB),
+          getTopAuthors(env.DB, 15),
+          getSuccessfulAuthors(env.DB, 15),
+          getPostsByHour(env.DB),
+          getPostsByDayOfWeek(env.DB),
+          getPostsByDate(env.DB, 30),
+          getViralPosts(env.DB, 10),
+          getTopDomains(env.DB, 15),
+        ]);
+        
+        return new Response(JSON.stringify({
+          detailedStats,
+          topAuthors,
+          successfulAuthors,
+          postsByHour,
+          postsByDayOfWeek,
+          postsByDate,
+          viralPosts,
+          topDomains,
         }), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });

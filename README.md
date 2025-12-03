@@ -4,14 +4,14 @@ A production-grade HackerNews archiving bot built with Cloudflare Workers and D1
 
 ## Features
 
-- 🚀 **Real-time archiving** - Discovers new items every 5 minutes
-- 📊 **Change tracking** - Monitors score and comment count changes with smart snapshots
-- 🔄 **Efficient updates** - Uses HN's `/v0/updates` endpoint to minimize API calls
-- 💾 **SQLite storage** - Leverages Cloudflare D1 with optimized indexes
-- 📈 **Time-series data** - Selective snapshots for growth analysis
-- 🛡️ **Error resilient** - Graceful failure handling with automatic retries
-- 📉 **Free tier optimized** - Uses only 11% of Cloudflare's free tier limits
-- 🔍 **Comprehensive monitoring** - Built-in health checks and metrics
+- **Real-time archiving** - Discovers new items every 5 minutes
+- **Change tracking** - Monitors score and comment count changes with smart snapshots
+- **Efficient updates** - Uses HN's `/v0/updates` endpoint to minimize API calls
+- **SQLite storage** - Leverages Cloudflare D1 with optimized indexes
+- **Time-series data** - Selective snapshots for growth analysis
+- **Error resilient** - Graceful failure handling with automatic retries
+- **Free tier optimized** - Uses only 11% of Cloudflare's free tier limits
+- **Comprehensive monitoring** - Built-in health checks and metrics
 
 ## Architecture
 
@@ -25,7 +25,7 @@ A production-grade HackerNews archiving bot built with Cloudflare Workers and D1
 ### Data Flow
 
 ```
-HN API → Workers (batch fetch) → Change detection → D1 Database → Snapshots
+HN API -> Workers (batch fetch) -> Change detection -> D1 Database -> Snapshots
 ```
 
 ## Quick Start
@@ -115,10 +115,10 @@ Uses only **11%** of Cloudflare free tier limits:
 
 ## Security
 
-- ✅ Parameterized queries (SQL injection prevention)
-- ✅ Input validation with type guards
-- ✅ Rate limiting and retry logic
-- ✅ Comprehensive error handling
+- Parameterized queries (SQL injection prevention)
+- Input validation with type guards
+- Rate limiting and retry logic
+- Comprehensive error handling
 
 ## License
 
