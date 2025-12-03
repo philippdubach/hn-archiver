@@ -1,0 +1,34 @@
+{
+  "name": "hn-archiver",
+  "version": "1.0.0",
+  "description": "HackerNews archiving bot built with Cloudflare Workers and D1",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "db:create": "wrangler d1 create hn-archiver",
+    "db:init": "wrangler d1 execute hn-archiver --local --file=./schema.sql",
+    "db:init:remote": "wrangler d1 execute hn-archiver --remote --file=./schema.sql",
+    "db:query:local": "wrangler d1 execute hn-archiver --local --command",
+    "db:query:remote": "wrangler d1 execute hn-archiver --remote --command",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint src --ext .ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241127.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.15",
+    "wrangler": "^4.52.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,18 @@
+name = "hn-archiver"
+main = "src/worker.ts"
+compatibility_date = "2025-12-03"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "hn-archiver"
+database_id = "5edd6e65-c226-4439-8a80-00fa5d1386c4"
+
+# Optimized cron schedules for free tier
+[triggers]
+crons = ["*/5 * * * *", "*/10 * * * *", "0 */6 * * *"]
+
+# Observability settings
+[observability]
+enabled = true
