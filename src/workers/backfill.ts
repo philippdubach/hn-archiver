@@ -6,8 +6,8 @@
 
 import type { WorkerEnv, WorkerResult, EnrichedHNItem } from '../types';
 import { fetchItemsBatch } from '../hn-api';
-import { upsertItem, insertSnapshot, getStaleItems, updateState, logError, recordMetrics } from '../db';
-import { getCurrentTimestampMs, getSnapshotReason } from '../utils';
+import { batchUpsertItems, batchInsertSnapshots, getStaleItems, updateState, logError, recordMetrics } from '../db';
+import { getCurrentTimestampMs } from '../utils';
 import { Config } from '../types';
 
 /**
@@ -61,64 +61,36 @@ export async function runBackfill(env: WorkerEnv): Promise<WorkerResult> {
       };
     }
     
-    // Step 2: Fetch and process stale items
+    // Step 2: Fetch and process stale items using batch operations
     try {
       const items = await fetchItemsBatch(staleIds);
       console.log(`[Backfill] Fetched ${items.length}/${staleIds.length} items`);
       
-      for (const item of items) {
-        try {
-          // Backfill items are not on front page (by definition, they're old)
-          const enrichedItem: EnrichedHNItem = {
-            ...item,
-            isFrontPage: false,
-          };
-          
-          // Upsert to database with change detection
-          const result = await upsertItem(env.DB, enrichedItem);
-          itemsProcessed++;
-          
-          if (result.changed) {
-            itemsChanged++;
-            
-            // Create snapshot if significant change detected
-            // More conservative snapshot criteria for backfill (avoid spam)
-            if (result.shouldSnapshot && result.oldScore && item.score) {
-              const scoreIncrease = item.score - result.oldScore;
-              
-              // Only snapshot if score increased significantly
-              if (scoreIncrease >= Config.SNAPSHOT_SCORE_THRESHOLD) {
-                const reason = getSnapshotReason(
-                  { score: result.oldScore } as any,
-                  enrichedItem,
-                  result.updateCount
-                );
-                
-                await insertSnapshot(
-                  env.DB,
-                  item.id,
-                  item.score,
-                  item.descendants,
-                  reason
-                );
-                snapshotsCreated++;
-              }
-            }
-          }
-        } catch (error) {
-          errors++;
-          const errorMsg = `Failed to process item ${item.id}: ${error}`;
-          errorMessages.push(errorMsg);
-          console.error(`[Backfill] ${errorMsg}`);
-          
-          if (error instanceof Error) {
-            await logError(env.DB, workerType, error, { itemId: item.id });
-          }
-        }
+      // Backfill items are not on front page (by definition, they're old)
+      const enrichedItems: EnrichedHNItem[] = items.map(item => ({
+        ...item,
+        isFrontPage: false,
+      }));
+      
+      // Batch upsert all items in single transaction
+      const batchResult = await batchUpsertItems(env.DB, enrichedItems);
+      itemsProcessed = batchResult.processed;
+      itemsChanged = batchResult.changed;
+      
+      // For backfill, only create snapshots for significant score increases
+      // Filter snapshots to only include score_spike reason
+      const significantSnapshots = batchResult.snapshots.filter(s => s.reason === 'score_spike');
+      
+      if (significantSnapshots.length > 0) {
+        await batchInsertSnapshots(env.DB, significantSnapshots);
+        snapshotsCreated = significantSnapshots.length;
       }
+      
+      console.log(`[Backfill] Batch processed: ${itemsProcessed} items, ${itemsChanged} changed, ${snapshotsCreated} snapshots`);
+      
     } catch (error) {
       errors++;
-      const errorMsg = `Failed to fetch stale items: ${error}`;
+      const errorMsg = `Failed to process stale items: ${error}`;
       errorMessages.push(errorMsg);
       console.error(`[Backfill] ${errorMsg}`);
       

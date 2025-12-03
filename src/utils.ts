@@ -3,7 +3,7 @@
  * Reusable helpers for batching, comparison, validation, and timing
  */
 
-import type { DBItem, HNItem, EnrichedHNItem } from './types';
+import type { DBItem, EnrichedHNItem } from './types';
 import { Config } from './types';
 
 /**
@@ -25,29 +25,6 @@ export function chunk<T>(array: T[], size: number): T[][] {
  */
 export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Deep comparison to detect if item data has actually changed
- * Ignores metadata fields like last_updated_at
- */
-export function hasItemChanged(oldItem: DBItem, newItem: HNItem): boolean {
-  // Compare primitive fields
-  if (oldItem.score !== newItem.score) return true;
-  if (oldItem.descendants !== newItem.descendants) return true;
-  if (oldItem.title !== newItem.title) return true;
-  if (oldItem.text !== newItem.text) return true;
-  if (oldItem.url !== newItem.url) return true;
-  if (oldItem.deleted !== (newItem.deleted || false)) return true;
-  if (oldItem.dead !== (newItem.dead || false)) return true;
-  if (oldItem.by !== newItem.by) return true;
-  
-  // Compare kids array (stored as JSON in DB)
-  const oldKids = oldItem.kids ? JSON.parse(oldItem.kids) : null;
-  const newKids = newItem.kids || null;
-  if (JSON.stringify(oldKids) !== JSON.stringify(newKids)) return true;
-  
-  return false;
 }
 
 /**
@@ -100,7 +77,7 @@ export function shouldCreateSnapshot(
 export function getSnapshotReason(
   oldItem: DBItem | null,
   newItem: EnrichedHNItem,
-  updateCount: number
+  _updateCount: number
 ): 'score_spike' | 'front_page' | 'sample' | 'new_item' {
   if (!oldItem) {
     return 'new_item';
@@ -152,27 +129,6 @@ export async function retryWithBackoff<T>(
 }
 
 /**
- * Safely parse JSON with error handling
- * Returns null if parsing fails
- */
-export function safeJsonParse<T>(json: string | null): T | null {
-  if (!json) return null;
-  
-  try {
-    return JSON.parse(json) as T;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get current Unix timestamp in seconds (matches HN API format)
- */
-export function getCurrentTimestamp(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
-/**
  * Get current Unix timestamp in milliseconds (for internal use)
  */
 export function getCurrentTimestampMs(): number {
@@ -180,97 +136,9 @@ export function getCurrentTimestampMs(): number {
 }
 
 /**
- * Validate that a timestamp is reasonable (not too old, not in future)
- */
-export function isValidTimestamp(timestamp: number): boolean {
-  const now = getCurrentTimestamp();
-  const hnLaunchDate = 1160418111; // Oct 2006 when HN launched
-  return timestamp >= hnLaunchDate && timestamp <= now + 86400; // Allow 1 day future for clock skew
-}
-
-/**
- * Batch async operations with concurrency limit
- * Prevents overwhelming the API or Worker CPU limits
- */
-export async function batchProcess<T, R>(
-  items: T[],
-  processor: (item: T) => Promise<R>,
-  concurrency: number = Config.CONCURRENT_REQUESTS
-): Promise<R[]> {
-  const results: R[] = [];
-  const chunks = chunk(items, concurrency);
-  
-  for (const chunk of chunks) {
-    const chunkResults = await Promise.allSettled(
-      chunk.map((item) => processor(item))
-    );
-    
-    // Extract successful results, log failures
-    for (const result of chunkResults) {
-      if (result.status === 'fulfilled') {
-        results.push(result.value);
-      } else {
-        console.error('Batch processing error:', result.reason);
-      }
-    }
-  }
-  
-  return results;
-}
-
-/**
- * Sanitize and truncate error messages for logging
- * Prevents excessive log spam
- */
-export function sanitizeError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message.slice(0, 500);
-  }
-  return String(error).slice(0, 500);
-}
-
-/**
- * Create a structured error details object for database storage
- */
-export function createErrorDetails(
-  error: unknown,
-  context?: Record<string, unknown>
-): string {
-  const details = {
-    message: error instanceof Error ? error.message : String(error),
-    stack: error instanceof Error ? error.stack?.slice(0, 1000) : undefined,
-    context,
-    timestamp: getCurrentTimestampMs(),
-  };
-  
-  return JSON.stringify(details);
-}
-
-/**
- * Check if an error is retryable (network issues, 5xx errors)
- */
-export function isRetryableError(error: unknown): boolean {
-  if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-    
-    // Network errors are retryable
-    if (message.includes('network') || message.includes('timeout')) {
-      return true;
-    }
-    
-    // 5xx errors are retryable
-    if (message.includes('500') || message.includes('502') || 
-        message.includes('503') || message.includes('504')) {
-      return true;
-    }
-  }
-  
-  return false;
-}
-
-/**
  * Rate limiter with token bucket algorithm
  * Prevents API rate limit violations
+ * Note: State resets on cold starts (Workers are stateless)
  */
 export class RateLimiter {
   private tokens: number;

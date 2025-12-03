@@ -5,19 +5,15 @@
  */
 
 import type {
-  WorkerEnv,
-  HNItem,
   DBItem,
   Snapshot,
-  ArchivingState,
-  ErrorLog,
   WorkerMetrics,
   UpsertResult,
   ArchiveStats,
   EnrichedHNItem,
 } from './types';
-import { DatabaseError } from './types';
-import { getCurrentTimestampMs, hasItemChanged, shouldCreateSnapshot, getSnapshotReason } from './utils';
+import { DatabaseError, Config } from './types';
+import { getCurrentTimestampMs, shouldCreateSnapshot, getSnapshotReason } from './utils';
 
 /**
  * Upsert an item into the database with intelligent change detection
@@ -165,7 +161,7 @@ export async function upsertItem(
       changed,
       isNew,
       shouldSnapshot,
-      oldScore,
+      oldScore: oldScore ?? undefined,
       newScore: item.score,
       updateCount,
     };
@@ -178,6 +174,103 @@ export async function upsertItem(
       error
     );
   }
+}
+
+/**
+ * Batch upsert multiple items using D1's batch API
+ * Significantly faster than individual upserts - single transaction
+ */
+export async function batchUpsertItems(
+  db: D1Database,
+  items: EnrichedHNItem[]
+): Promise<{ processed: number; changed: number; snapshots: Array<{ id: number; score?: number; descendants?: number; reason: Snapshot['snapshot_reason'] }> }> {
+  if (items.length === 0) return { processed: 0, changed: 0, snapshots: [] };
+  
+  const now = getCurrentTimestampMs();
+  const snapshots: Array<{ id: number; score?: number; descendants?: number; reason: Snapshot['snapshot_reason'] }> = [];
+  let changed = 0;
+  
+  // First, batch query to check existing items
+  const ids = items.map(i => i.id);
+  const placeholders = ids.map(() => '?').join(',');
+  
+  const existingResults = await db
+    .prepare(`SELECT id, score, deleted, dead, title, url, text, descendants, kids, update_count, last_changed_at FROM items WHERE id IN (${placeholders})`)
+    .bind(...ids)
+    .all<{ id: number; score: number | null; deleted: number; dead: number; title: string | null; url: string | null; text: string | null; descendants: number | null; kids: string | null; update_count: number; last_changed_at: number }>();
+  
+  const existingMap = new Map(existingResults.results?.map(r => [r.id, r]) || []);
+  
+  // Build batch statements
+  const statements: D1PreparedStatement[] = [];
+  
+  for (const item of items) {
+    const kidsJson = item.kids ? JSON.stringify(item.kids) : null;
+    const existing = existingMap.get(item.id);
+    const isNew = !existing;
+    
+    let contentChanged = isNew;
+    if (existing) {
+      contentChanged =
+        (item.deleted ? 1 : 0) !== existing.deleted ||
+        (item.dead ? 1 : 0) !== existing.dead ||
+        (item.title || null) !== existing.title ||
+        (item.url || null) !== existing.url ||
+        (item.text || null) !== existing.text ||
+        (item.score || null) !== existing.score ||
+        (item.descendants || null) !== existing.descendants ||
+        kidsJson !== existing.kids;
+    }
+    
+    if (contentChanged) changed++;
+    
+    const lastChangedAt = contentChanged ? now : (existing?.last_changed_at || now);
+    const updateCount = (existing?.update_count || 0) + 1;
+    
+    if (isNew) {
+      const itemTime = item.time && item.time > 0 ? item.time : now;
+      statements.push(
+        db.prepare(`INSERT INTO items (id, type, deleted, dead, title, url, text, by, time, score, descendants, parent, kids, first_seen_at, last_updated_at, last_changed_at, update_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(item.id, item.type, item.deleted ? 1 : 0, item.dead ? 1 : 0, item.title || null, item.url || null, item.text || null, item.by || null, itemTime, item.score || null, item.descendants || null, item.parent || null, kidsJson, now, now, now, 0)
+      );
+    } else {
+      statements.push(
+        db.prepare(`UPDATE items SET type = ?, deleted = ?, dead = ?, title = ?, url = ?, text = ?, by = ?, score = ?, descendants = ?, parent = ?, kids = ?, last_updated_at = ?, last_changed_at = ?, update_count = ? WHERE id = ?`)
+          .bind(item.type, item.deleted ? 1 : 0, item.dead ? 1 : 0, item.title || null, item.url || null, item.text || null, item.by || null, item.score || null, item.descendants || null, item.parent || null, kidsJson, now, lastChangedAt, updateCount, item.id)
+      );
+    }
+    
+    // Check if snapshot needed
+    if (shouldCreateSnapshot(isNew ? null : ({ score: existing?.score } as DBItem), item, updateCount, contentChanged)) {
+      const reason = getSnapshotReason(isNew ? null : ({ score: existing?.score } as DBItem), item, updateCount);
+      snapshots.push({ id: item.id, score: item.score, descendants: item.descendants, reason });
+    }
+  }
+  
+  // Execute batch in a single transaction
+  if (statements.length > 0) {
+    await db.batch(statements);
+  }
+  
+  return { processed: items.length, changed, snapshots };
+}
+
+/**
+ * Batch insert snapshots using D1's batch API
+ */
+export async function batchInsertSnapshots(
+  db: D1Database,
+  snapshots: Array<{ id: number; score?: number; descendants?: number; reason: Snapshot['snapshot_reason'] }>
+): Promise<void> {
+  if (snapshots.length === 0) return;
+  
+  const now = getCurrentTimestampMs();
+  const statements = snapshots.map(s =>
+    db.prepare(`INSERT INTO item_snapshots (item_id, captured_at, score, descendants, snapshot_reason) VALUES (?, ?, ?, ?, ?)`)
+      .bind(s.id, now, s.score || null, s.descendants || null, s.reason)
+  );
+  
+  await db.batch(statements);
 }
 
 /**
@@ -277,11 +370,11 @@ export async function getStaleItems(
         SELECT id FROM items
         WHERE last_updated_at < ?
           AND deleted = 0
-          AND (score > 50 OR descendants > 20)
+          AND (score > ? OR descendants > ?)
         ORDER BY descendants DESC, score DESC, last_updated_at ASC
         LIMIT ?
       `)
-      .bind(threshold, limit)
+      .bind(threshold, Config.STALE_MIN_SCORE, Config.STALE_MIN_DESCENDANTS, limit)
       .all<{ id: number }>();
     
     return results.results?.map((r) => r.id) || [];
@@ -296,6 +389,7 @@ export async function getStaleItems(
 
 /**
  * Get items that were recently updated (to avoid duplicate work)
+ * Uses chunking to avoid D1 bind parameter limits
  */
 export async function getRecentlyUpdatedItems(
   db: D1Database,
@@ -305,19 +399,31 @@ export async function getRecentlyUpdatedItems(
   if (itemIds.length === 0) return new Set();
   
   const threshold = getCurrentTimestampMs() - withinMs;
-  const placeholders = itemIds.map(() => '?').join(',');
+  const recentIds = new Set<number>();
+  
+  // D1 has limits on bind parameters, so chunk the query
+  const CHUNK_SIZE = 50;
   
   try {
-    const results = await db
-      .prepare(`
-        SELECT id FROM items
-        WHERE id IN (${placeholders})
-          AND last_updated_at >= ?
-      `)
-      .bind(...itemIds, threshold)
-      .all<{ id: number }>();
+    for (let i = 0; i < itemIds.length; i += CHUNK_SIZE) {
+      const chunk = itemIds.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      
+      const results = await db
+        .prepare(`
+          SELECT id FROM items
+          WHERE id IN (${placeholders})
+            AND last_updated_at >= ?
+        `)
+        .bind(...chunk, threshold)
+        .all<{ id: number }>();
+      
+      for (const row of results.results || []) {
+        recentIds.add(row.id);
+      }
+    }
     
-    return new Set(results.results?.map((r) => r.id) || []);
+    return recentIds;
   } catch (error) {
     throw new DatabaseError(
       'Failed to get recently updated items',
@@ -472,5 +578,180 @@ export async function cleanupOldMetrics(db: D1Database): Promise<number> {
   } catch (error) {
     console.error('Failed to cleanup old metrics:', error);
     return 0;
+  }
+}
+
+// ============================================
+// Frontend API Functions
+// ============================================
+
+/**
+ * Get paginated list of items for frontend
+ */
+export async function getItems(
+  db: D1Database,
+  options: {
+    limit?: number;
+    offset?: number;
+    type?: string;
+    orderBy?: 'time' | 'score' | 'descendants';
+    order?: 'asc' | 'desc';
+  }
+): Promise<{ items: DBItem[]; total: number }> {
+  const { limit = 50, offset = 0, type, orderBy = 'time', order = 'desc' } = options;
+  
+  // Validate orderBy to prevent SQL injection
+  const validOrderBy = ['time', 'score', 'descendants'].includes(orderBy) ? orderBy : 'time';
+  const validOrder = order === 'asc' ? 'ASC' : 'DESC';
+  
+  try {
+    let countQuery = 'SELECT COUNT(*) as count FROM items';
+    let itemsQuery = `SELECT id, type, deleted, dead, title, url, text, by, time, score, descendants, parent, first_seen_at, last_updated_at FROM items`;
+    const bindings: (string | number)[] = [];
+    
+    if (type) {
+      countQuery += ' WHERE type = ?';
+      itemsQuery += ' WHERE type = ?';
+      bindings.push(type);
+    }
+    
+    itemsQuery += ` ORDER BY ${validOrderBy} ${validOrder} NULLS LAST LIMIT ? OFFSET ?`;
+    
+    const [countResult, itemsResult] = await Promise.all([
+      db.prepare(countQuery).bind(...bindings).first<{ count: number }>(),
+      db.prepare(itemsQuery).bind(...bindings, limit, offset).all<DBItem>(),
+    ]);
+    
+    return {
+      items: itemsResult.results || [],
+      total: countResult?.count || 0,
+    };
+  } catch (error) {
+    throw new DatabaseError('Failed to get items', 'get_items', error);
+  }
+}
+
+/**
+ * Get a single item with its snapshots
+ */
+export async function getItemWithSnapshots(
+  db: D1Database,
+  itemId: number
+): Promise<{ item: DBItem | null; snapshots: Snapshot[] }> {
+  try {
+    const [itemResult, snapshotsResult] = await Promise.all([
+      db.prepare(`SELECT * FROM items WHERE id = ?`).bind(itemId).first<DBItem>(),
+      db.prepare(`SELECT * FROM item_snapshots WHERE item_id = ? ORDER BY captured_at DESC LIMIT 100`)
+        .bind(itemId)
+        .all<Snapshot>(),
+    ]);
+    
+    return {
+      item: itemResult || null,
+      snapshots: snapshotsResult.results || [],
+    };
+  } catch (error) {
+    throw new DatabaseError(`Failed to get item ${itemId}`, 'get_item_with_snapshots', error);
+  }
+}
+
+/**
+ * Get recent worker metrics for monitoring
+ */
+export async function getRecentMetrics(
+  db: D1Database,
+  limit: number = 50
+): Promise<WorkerMetrics[]> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          id,
+          timestamp as started_at,
+          worker_type,
+          items_processed,
+          items_changed,
+          snapshots_created,
+          duration_ms,
+          errors,
+          CASE WHEN errors > 0 THEN 'error' ELSE 'completed' END as status
+        FROM worker_metrics 
+        ORDER BY timestamp DESC 
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<WorkerMetrics & { status: string }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get recent metrics', 'get_recent_metrics', error);
+  }
+}
+
+/**
+ * Get type distribution for analytics
+ */
+export async function getTypeDistribution(db: D1Database): Promise<Array<{ type: string; count: number }>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT type, COUNT(*) as count 
+        FROM items 
+        GROUP BY type 
+        ORDER BY count DESC
+      `)
+      .all<{ type: string; count: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get type distribution', 'get_type_distribution', error);
+  }
+}
+
+/**
+ * Get snapshot reason distribution
+ */
+export async function getSnapshotReasons(db: D1Database): Promise<Array<{ reason: string; count: number }>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT snapshot_reason as reason, COUNT(*) as count 
+        FROM item_snapshots 
+        GROUP BY snapshot_reason 
+        ORDER BY count DESC
+      `)
+      .all<{ reason: string; count: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get snapshot reasons', 'get_snapshot_reasons', error);
+  }
+}
+
+/**
+ * Get top items by score or descendants
+ */
+export async function getTopItems(
+  db: D1Database,
+  orderBy: 'score' | 'descendants',
+  limit: number = 10
+): Promise<Array<{ id: number; title: string | null; type: string; score: number | null; descendants: number | null }>> {
+  const validOrderBy = orderBy === 'descendants' ? 'descendants' : 'score';
+  
+  try {
+    const result = await db
+      .prepare(`
+        SELECT id, title, type, score, descendants
+        FROM items
+        WHERE deleted = 0 AND type IN ('story', 'poll', 'job')
+        ORDER BY ${validOrderBy} DESC NULLS LAST
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<{ id: number; title: string | null; type: string; score: number | null; descendants: number | null }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get top items', 'get_top_items', error);
   }
 }

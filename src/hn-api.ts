@@ -4,12 +4,12 @@
  * retry logic, and batch processing optimizations
  */
 
-import type { HNItem, HNUpdates, HNAPIError } from './types';
+import type { HNItem, HNUpdates } from './types';
 import { Config, isValidHNItem, isValidHNUpdates } from './types';
 import { retryWithBackoff, chunk, RateLimiter } from './utils';
 
-// Rate limiter: 10 requests per second (conservative, HN has no official limit)
-const rateLimiter = new RateLimiter(10, 10);
+// Rate limiter: 50 requests per second (balanced - HN has no official limit)
+const rateLimiter = new RateLimiter(50, 50);
 
 /**
  * Fetch the current maximum item ID from HN
@@ -142,60 +142,6 @@ export async function fetchTopStories(): Promise<number[]> {
 }
 
 /**
- * Fetch new stories (up to 500 IDs)
- * These are the most recently created stories
- */
-export async function fetchNewStories(): Promise<number[]> {
-  return retryWithBackoff(async () => {
-    await rateLimiter.waitForToken();
-    
-    const response = await fetch(`${Config.HN_API_BASE}/newstories.json`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HN API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!Array.isArray(data) || !data.every((id) => typeof id === 'number')) {
-      throw new Error('Invalid new stories response');
-    }
-    
-    return data as number[];
-  });
-}
-
-/**
- * Fetch best stories (up to 500 IDs)
- * These are the highest-rated recent stories
- */
-export async function fetchBestStories(): Promise<number[]> {
-  return retryWithBackoff(async () => {
-    await rateLimiter.waitForToken();
-    
-    const response = await fetch(`${Config.HN_API_BASE}/beststories.json`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HN API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!Array.isArray(data) || !data.every((id) => typeof id === 'number')) {
-      throw new Error('Invalid best stories response');
-    }
-    
-    return data as number[];
-  });
-}
-
-/**
  * Fetch recently changed items and profiles
  * CRITICAL for efficiency - tells us which items changed without polling everything
  */
@@ -219,83 +165,5 @@ export async function fetchUpdates(): Promise<HNUpdates> {
     }
     
     return data as HNUpdates;
-  });
-}
-
-/**
- * Fetch Ask HN stories (up to 200 IDs)
- */
-export async function fetchAskStories(): Promise<number[]> {
-  return retryWithBackoff(async () => {
-    await rateLimiter.waitForToken();
-    
-    const response = await fetch(`${Config.HN_API_BASE}/askstories.json`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HN API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!Array.isArray(data)) {
-      throw new Error('Invalid ask stories response');
-    }
-    
-    return data as number[];
-  });
-}
-
-/**
- * Fetch Show HN stories (up to 200 IDs)
- */
-export async function fetchShowStories(): Promise<number[]> {
-  return retryWithBackoff(async () => {
-    await rateLimiter.waitForToken();
-    
-    const response = await fetch(`${Config.HN_API_BASE}/showstories.json`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HN API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!Array.isArray(data)) {
-      throw new Error('Invalid show stories response');
-    }
-    
-    return data as number[];
-  });
-}
-
-/**
- * Fetch job stories (up to 200 IDs)
- */
-export async function fetchJobStories(): Promise<number[]> {
-  return retryWithBackoff(async () => {
-    await rateLimiter.waitForToken();
-    
-    const response = await fetch(`${Config.HN_API_BASE}/jobstories.json`, {
-      method: 'GET',
-      headers: { 'Accept': 'application/json' },
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HN API error: ${response.status} ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!Array.isArray(data)) {
-      throw new Error('Invalid job stories response');
-    }
-    
-    return data as number[];
   });
 }

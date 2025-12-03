@@ -9,9 +9,12 @@ binding = "DB"
 database_name = "hn-archiver"
 database_id = "5edd6e65-c226-4439-8a80-00fa5d1386c4"
 
-# Optimized cron schedules for free tier
+# Optimized cron schedules - faster discovery, more frequent backfill
 [triggers]
-crons = ["*/5 * * * *", "*/10 * * * *", "0 */6 * * *"]
+crons = ["*/3 * * * *", "*/10 * * * *", "0 */2 * * *"]
+# Discovery: every 3 min (was 5) - 480 runs/day
+# Updates: every 10 min - 144 runs/day
+# Backfill: every 2 hours (was 6) - 12 runs/day
 
 # Observability settings
 [observability]

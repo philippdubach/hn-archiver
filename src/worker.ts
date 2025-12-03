@@ -5,10 +5,21 @@
  */
 
 import type { WorkerEnv, StatsResponse, HealthResponse } from './types';
+import { Config } from './types';
 import { runDiscovery } from './workers/discovery';
 import { runUpdateTracker } from './workers/update-tracker';
 import { runBackfill } from './workers/backfill';
-import { getArchiveStats, cleanupOldErrors, cleanupOldMetrics } from './db';
+import {
+  getArchiveStats,
+  cleanupOldErrors,
+  cleanupOldMetrics,
+  getItems,
+  getItemWithSnapshots,
+  getRecentMetrics,
+  getTypeDistribution,
+  getSnapshotReasons,
+  getTopItems,
+} from './db';
 import { getCurrentTimestampMs } from './utils';
 
 /**
@@ -18,23 +29,24 @@ export default {
   async scheduled(
     event: ScheduledEvent,
     env: WorkerEnv,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<void> {
     const cron = event.cron;
     console.log(`[Worker] Scheduled event triggered: ${cron}`);
     
     try {
       // Route to appropriate worker based on cron schedule
-      if (cron === '*/5 * * * *') {
-        // Discovery worker - every 5 minutes
+      // Schedules defined in wrangler.toml: */3, */10, 0 */2
+      if (cron === '*/3 * * * *') {
+        // Discovery worker - every 3 minutes
         const result = await runDiscovery(env);
         console.log(`[Worker] Discovery completed:`, result);
       } else if (cron === '*/10 * * * *') {
         // Update tracker - every 10 minutes
         const result = await runUpdateTracker(env);
         console.log(`[Worker] Update tracker completed:`, result);
-      } else if (cron === '0 */6 * * *') {
-        // Backfill worker - every 6 hours
+      } else if (cron === '0 */2 * * *') {
+        // Backfill worker - every 2 hours
         const result = await runBackfill(env);
         console.log(`[Worker] Backfill completed:`, result);
         
@@ -57,7 +69,7 @@ export default {
   async fetch(
     request: Request,
     env: WorkerEnv,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -85,10 +97,11 @@ export default {
         const timeSinceUpdates = now - stats.last_update_check;
         
         let status: HealthResponse['status'] = 'healthy';
-        if (timeSinceDiscovery > 10 * 60 * 1000 || timeSinceUpdates > 20 * 60 * 1000) {
+        if (timeSinceDiscovery > Config.HEALTH_DEGRADED_DISCOVERY_MS || 
+            timeSinceUpdates > Config.HEALTH_DEGRADED_UPDATES_MS) {
           status = 'degraded';
         }
-        if (timeSinceDiscovery > 30 * 60 * 1000) {
+        if (timeSinceDiscovery > Config.HEALTH_UNHEALTHY_DISCOVERY_MS) {
           status = 'unhealthy';
         }
         
@@ -127,7 +140,98 @@ export default {
         });
       }
 
+      // ============================================
+      // Frontend API Endpoints
+      // ============================================
+
+      // Paginated items list
+      if (path === '/api/items') {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const type = url.searchParams.get('type') || undefined;
+        const orderBy = (url.searchParams.get('orderBy') || 'time') as 'time' | 'score' | 'descendants';
+        const order = (url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
+
+        const result = await getItems(env.DB, { limit, offset, type, orderBy, order });
+        
+        return new Response(JSON.stringify(result), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Single item with snapshots
+      if (path.startsWith('/api/item/')) {
+        const idStr = path.replace('/api/item/', '');
+        const itemId = parseInt(idStr);
+        
+        if (isNaN(itemId)) {
+          return new Response(JSON.stringify({ error: 'Invalid item ID' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        const result = await getItemWithSnapshots(env.DB, itemId);
+        
+        if (!result.item) {
+          return new Response(JSON.stringify({ error: 'Item not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+        
+        return new Response(JSON.stringify(result), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Worker metrics
+      if (path === '/api/metrics') {
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const metrics = await getRecentMetrics(env.DB, limit);
+        
+        return new Response(JSON.stringify(metrics), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Analytics data
+      if (path === '/api/analytics') {
+        const [typeDistribution, snapshotReasons, topByScore, topByComments] = await Promise.all([
+          getTypeDistribution(env.DB),
+          getSnapshotReasons(env.DB),
+          getTopItems(env.DB, 'score', 10),
+          getTopItems(env.DB, 'descendants', 10),
+        ]);
+        
+        return new Response(JSON.stringify({
+          typeDistribution,
+          snapshotReasons,
+          topByScore,
+          topByComments,
+        }), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
       // Manual trigger endpoints (useful for testing)
+      // Protected by optional TRIGGER_SECRET environment variable
+      if (path.startsWith('/trigger/')) {
+        const triggerSecret = (env as any).TRIGGER_SECRET;
+        if (triggerSecret) {
+          const authHeader = request.headers.get('Authorization');
+          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
+            return new Response(
+              JSON.stringify({ error: 'Unauthorized', message: 'Invalid or missing Authorization header' }),
+              {
+                status: 401,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              }
+            );
+          }
+        }
+      }
+
       if (path === '/trigger/discovery') {
         const result = await runDiscovery(env);
         return new Response(JSON.stringify(result, null, 2), {
@@ -170,6 +274,10 @@ export default {
           endpoints: {
             health: '/',
             stats: '/stats',
+            api_items: '/api/items?limit=50&offset=0&type=story&orderBy=time&order=desc',
+            api_item: '/api/item/:id',
+            api_metrics: '/api/metrics',
+            api_analytics: '/api/analytics',
             trigger_discovery: '/trigger/discovery',
             trigger_updates: '/trigger/updates',
             trigger_backfill: '/trigger/backfill',

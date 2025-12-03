@@ -6,8 +6,8 @@
 
 import type { WorkerEnv, WorkerResult, EnrichedHNItem } from '../types';
 import { fetchMaxItemId, fetchTopStories, fetchItemsBatch } from '../hn-api';
-import { upsertItem, insertSnapshot, getState, updateState, logError, recordMetrics } from '../db';
-import { getCurrentTimestampMs, getSnapshotReason, chunk } from '../utils';
+import { getState, updateState, logError, recordMetrics, batchUpsertItems, batchInsertSnapshots } from '../db';
+import { getCurrentTimestampMs, chunk } from '../utils';
 import { Config } from '../types';
 
 /**
@@ -88,55 +88,28 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
       currentBatchNum++;
       
       try {
-        // Fetch batch of items
+        // Fetch batch of items in parallel
         const items = await fetchItemsBatch(batch);
         console.log(`[Discovery] Batch ${currentBatchNum}/${batches.length}: Fetched ${items.length}/${batch.length} items`);
         
-        // Process each item
-        for (const item of items) {
-          try {
-            // Enrich item with front page flag
-            const enrichedItem: EnrichedHNItem = {
-              ...item,
-              isFrontPage: frontPageIds.has(item.id),
-            };
-            
-            // Upsert to database
-            const result = await upsertItem(env.DB, enrichedItem);
-            itemsProcessed++;
-            
-            if (result.changed) {
-              itemsChanged++;
-            }
-            
-            // Create snapshot if needed
-            if (result.shouldSnapshot) {
-              const reason = getSnapshotReason(
-                result.isNew ? null : ({ score: result.oldScore } as any),
-                enrichedItem,
-                result.updateCount
-              );
-              
-              await insertSnapshot(
-                env.DB,
-                item.id,
-                item.score,
-                item.descendants,
-                reason
-              );
-              snapshotsCreated++;
-            }
-          } catch (error) {
-            errors++;
-            const errorMsg = `Failed to process item ${item.id}: ${error}`;
-            errorMessages.push(errorMsg);
-            console.error(`[Discovery] ${errorMsg}`);
-            
-            if (error instanceof Error) {
-              await logError(env.DB, workerType, error, { itemId: item.id });
-            }
-          }
+        // Enrich items with front page flag
+        const enrichedItems: EnrichedHNItem[] = items.map(item => ({
+          ...item,
+          isFrontPage: frontPageIds.has(item.id),
+        }));
+        
+        // Batch upsert all items in single transaction
+        const batchResult = await batchUpsertItems(env.DB, enrichedItems);
+        itemsProcessed += batchResult.processed;
+        itemsChanged += batchResult.changed;
+        
+        // Batch insert all snapshots
+        if (batchResult.snapshots.length > 0) {
+          await batchInsertSnapshots(env.DB, batchResult.snapshots);
+          snapshotsCreated += batchResult.snapshots.length;
         }
+        
+        console.log(`[Discovery] Batch ${currentBatchNum}: Processed ${batchResult.processed}, changed ${batchResult.changed}, snapshots ${batchResult.snapshots.length}`);
         
         // Update progress after each batch (enables resume on timeout)
         const lastIdInBatch = Math.max(...batch);

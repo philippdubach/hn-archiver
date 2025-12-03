@@ -107,6 +107,13 @@ export const Config = {
   STALE_ITEM_THRESHOLD_MS: 24 * 60 * 60 * 1000,  // 24 hours
   BACKFILL_LIMIT: 100,
   RECENT_UPDATE_WINDOW_MS: 5 * 60 * 1000,  // 5 minutes
+  // Stale item query thresholds
+  STALE_MIN_SCORE: 50,
+  STALE_MIN_DESCENDANTS: 20,
+  // Health check thresholds (ms)
+  HEALTH_DEGRADED_DISCOVERY_MS: 10 * 60 * 1000,  // 10 minutes
+  HEALTH_DEGRADED_UPDATES_MS: 20 * 60 * 1000,    // 20 minutes
+  HEALTH_UNHEALTHY_DISCOVERY_MS: 30 * 60 * 1000, // 30 minutes
 } as const;
 
 // Type guards for runtime validation
