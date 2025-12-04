@@ -1,117 +1,88 @@
 # Copilot Instructions
 
-## Project
+## Architecture
 
-HackerNews archiver using Cloudflare Workers, D1, Workers AI, and Vectorize. Running on the paid plan but designed to stay within included limits.
+HackerNews archiver on Cloudflare Workers + D1 + Workers AI + Vectorize.
 
-## Stack
+**Data flow**: HN API (`/v0/maxitem`, `/v0/updates`) → Discovery/Updates workers → D1 `items` table → Backfill worker → AI analysis (`ai_topic`, `ai_sentiment` columns) → Vectorize index `hn-similar`
 
-- **Workers**: Serverless functions with cron triggers
-- **D1**: SQLite database (parameterized queries, upserts for idempotency)
-- **Workers AI**: Llama 3.2-1B for topic/content classification, DistilBERT for sentiment
-- **Vectorize**: Vector database for similarity search (768 dimensions, cosine metric, bge-base-en-v1.5 embeddings)
-- **HN API**: `https://hacker-news.firebaseio.com/v0/` (no auth, no rate limits)
+**Cron schedules** (wrangler.toml `[triggers].crons`):
+- `*/3 * * * *` → `runDiscovery()` - fetches items from `lastSeen+1` to current `maxitem`
+- `*/10 * * * *` → `runUpdateTracker()` - refreshes items from `/v0/updates`
+- `0 */2 * * *` → `runBackfill()` - refreshes stale items (score>50 OR descendants>20, not updated in 24h), then AI analysis, then embeddings
 
-## File structure
+## Critical Patterns
+
+**Timestamps**: HN API returns Unix seconds (`item.time`). Internal tracking uses milliseconds (`getCurrentTimestampMs()`). Don't mix them.
+
+**Idempotency**: All DB writes are upserts. `batchUpsertItems()` checks existing data, computes diffs, returns `{ processed, changed, snapshots }`. Safe to re-run any worker.
+
+**Error handling**: Workers catch all errors, log to `error_log` table via `logError()`, and continue. Never throw from `scheduled()` or `fetch()` handlers.
+
+**Budget limits** (types.ts `BudgetLimits`):
+- `VECTORIZE_QUERIES_PER_DAY: 1500` - check via `checkUsageLimits(db, 'vectorize_query')`
+- `VECTORIZE_MAX_STORED_VECTORS: 10000` - check via `checkUsageLimits(db, 'embedding_backfill')`
+- `EMBEDDING_BATCH_SIZE: 50` - max embeddings per backfill run
+- Track usage: `incrementUsageCounter(db, 'vectorize_queries_YYYY-MM-DD', 1)`
+
+**Batch DB operations**: Use `db.batch(statements)` for transactions. See `batchUpsertItems()` - builds array of prepared statements, executes atomically.
+
+**Snapshots**: Created when score increases ≥20 points (`score_spike`), item on front page (`front_page`), or every 4th update (`sample`). Logic in `shouldCreateSnapshot()` utils.ts.
+
+## File Responsibilities
 
 ```
-src/
-  worker.ts           # HTTP routes, cron dispatcher, auth, rate limiting
-  db.ts               # Database queries and usage tracking
-  hn-api.ts           # HN API client with rate limiting
-  ai-analysis.ts      # AI classification + embedding generation
-  frontend.ts         # Embedded HTML for index and analytics pages
-  types.ts            # TypeScript types, config, and budget limits
-  utils.ts            # Helpers, timing-safe compare, CSP headers
-  workers/
-    discovery.ts      # New item discovery
-    update-tracker.ts # Track item changes
-    backfill.ts       # Refresh stale items + AI + embedding backfill
-    embedding-backfill.ts  # Vector embedding generation
-schema.sql            # Database schema including analytics cache
-wrangler.toml         # Worker config with D1, AI, and Vectorize bindings
-.dev.vars             # Local secrets (gitignored)
+src/worker.ts        # scheduled() routes crons by pattern, fetch() handles HTTP
+src/db.ts            # ALL SQL lives here. No raw SQL elsewhere.
+src/ai-analysis.ts   # analyzeStory(), batchGenerateEmbeddings(), generateEmbedding()
+src/types.ts         # BudgetLimits, Config, type guards (isValidHNItem, isValidHNUpdates)
+src/utils.ts         # timingSafeEqual(), shouldCreateSnapshot(), retryWithBackoff()
+src/workers/*.ts     # Thin orchestration, delegate to db.ts and ai-analysis.ts
+src/frontend.ts      # INDEX_HTML, ANALYTICS_HTML constants (embedded, no static files)
 ```
 
 ## Security
 
-Auth:
-- `TRIGGER_SECRET` via `wrangler secret put` (never in code)
-- Timing-safe comparison for auth tokens (no timing attacks)
-- Returns 503 when secret not configured (fail-closed)
-- Protected: `/trigger/*`, `/api/similar/:id`, `/api/compute-topic-similarity`
-
-Rate limiting:
-- 100 requests per IP per minute on public endpoints
-- Returns 429 with Retry-After header when exceeded
-- In-memory, resets on cold start
-
-CORS and headers:
-- Only allows production domain and localhost
-- Non-GET from unknown origins rejected (403)
-- CSP headers on HTML (script-src self unsafe-inline, frame-ancestors none)
-- X-Frame-Options DENY, X-Content-Type-Options nosniff
-
-Input handling:
-- Parameterized SQL queries everywhere
-- HTML sanitization uses allowlist (p, a, code, pre, i, b, em, strong, etc)
-- Item IDs validated as integers
-- AI responses validated before use
-- Error responses don't leak internals
-
-## Conventions
-
-- All timestamps are Unix epoch (seconds for HN data, milliseconds for internal)
-- Upsert everything (safe to re-run)
-- Log errors but don't throw (graceful degradation)
-- Batch API requests (100 concurrent max)
-- AI analysis only on stories with titles
-- Track usage in `usage_counters` table for budget compliance
-
-## Budget limits (paid plan included amounts)
-
-- D1: 25B reads/month (we use a fraction of this)
-- Vectorize: 50M queried dimensions/month (~65k queries at 768d), 10M stored dimensions (~13k vectors)
-- Conservative daily limits: 1,500 Vectorize queries, 10,000 max stored vectors
-- Embedding batch size: 50 per backfill run
-
-## Common commands
-
-```bash
-npm run dev              # Local dev server
-npm run deploy           # Deploy to Cloudflare
-npx wrangler tail        # Live logs
-npx wrangler d1 execute hn-archiver --remote --command "SELECT ..."
-npx wrangler secret put TRIGGER_SECRET  # Set admin secret
+**Protected routes** (`/trigger/*`, `/api/similar/:id`, `/api/compute-topic-similarity`):
+```typescript
+const triggerSecret = env.TRIGGER_SECRET;
+if (!triggerSecret) return new Response(..., { status: 503 }); // fail-closed
+if (!validateAuth(authHeader, triggerSecret)) return new Response(..., { status: 401 });
 ```
 
-## HN API quick reference
+**SQL**: Always `db.prepare('...?...').bind(value)`. Never string interpolation.
 
-- `/v0/maxitem.json` - Latest item ID
-- `/v0/item/{id}.json` - Single item
-- `/v0/updates.json` - Recently changed items/profiles
-- `/v0/topstories.json` - Front page IDs (up to 500)
+**Item ID validation**: `const MAX_REASONABLE_ID = 100_000_000; if (isNaN(itemId) || itemId < 1 || itemId > MAX_REASONABLE_ID)`
 
-## API endpoints
+**CORS**: `allowedOrigins = ['https://hn-archiver.philippd.workers.dev', 'http://localhost:8787']`. Reject non-GET from unknown origins.
 
-Public:
-- `/`, `/analytics` - Embedded frontend pages
-- `/health` - Health check
-- `/stats` - Archive statistics
-- `/api/items` - Paginated items with filtering
-- `/api/item/:id` - Single item with snapshot history
-- `/api/metrics` - Worker run history
-- `/api/analytics` - Type distribution, top items
-- `/api/advanced-analytics` - Authors, domains, viral posts, time patterns
-- `/api/ai-analytics` - AI classification breakdown
-- `/api/ai-analytics-extended` - Full AI stats with topic/sentiment
-- `/api/embedding-analytics` - Coverage, topic clusters, similarity matrix
-- `/api/usage` - Budget monitoring
+**Rate limiting**: 100 req/IP/min, in-memory `rateLimitMap`, returns 429 with `Retry-After: 60`.
 
-Protected (need `Authorization: Bearer <secret>`):
-- `/trigger/discovery` - Manual discovery run
-- `/trigger/updates` - Manual updates run  
-- `/trigger/backfill` - Manual backfill run
-- `/trigger/ai-backfill` - Run AI analysis on pending stories
-- `/api/similar/:id` - Semantic similarity search
-- `/api/compute-topic-similarity` - Recompute similarity matrix
+## Commands
+
+```bash
+npm run dev                    # localhost:8787, uses local D1
+npx wrangler tail              # stream production logs
+npx wrangler d1 execute hn-archiver --remote --command "SELECT COUNT(*) FROM items"
+npx wrangler d1 execute hn-archiver --local --file=schema.sql
+npx wrangler secret put TRIGGER_SECRET
+curl -H "Authorization: Bearer $SECRET" https://hn-archiver.philippd.workers.dev/trigger/backfill
+```
+
+## Adding Features
+
+**New DB query**: Add to db.ts. Use `db.prepare().bind()`. Throw `DatabaseError` on failure. Return typed result.
+
+**New endpoint**: Add to `fetch()` in worker.ts. Pattern: validate input → call db.ts function → return `Response` with `corsHeaders`.
+
+**New AI model**: Add to ai-analysis.ts. Validate response structure (AI can return unexpected formats). Use `Promise.allSettled` for batches.
+
+**New worker**: Create `src/workers/foo.ts`, export `async function runFoo(env: WorkerEnv): Promise<WorkerResult>`. Add to `scheduled()` switch in worker.ts.
+
+## AI Models
+
+| Model | Use | Input | Output |
+|-------|-----|-------|--------|
+| `@cf/meta/llama-3.2-1b-instruct` | Topic classification | `{ prompt, max_tokens: 20, temperature: 0.1 }` | `{ response: string }` |
+| `@cf/huggingface/distilbert-sst-2-int8` | Sentiment | `{ text }` | `[{ label: "POSITIVE"|"NEGATIVE", score: 0-1 }]` |
+| `@cf/baai/bge-base-en-v1.5` | Embeddings | `{ text }` | `{ data: [[...768 floats]] }` |
