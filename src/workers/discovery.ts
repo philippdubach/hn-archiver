@@ -4,11 +4,12 @@
  * Runs every 5 minutes to capture all new content
  */
 
-import type { WorkerEnv, WorkerResult, EnrichedHNItem } from '../types';
+import type { WorkerEnv, WorkerResult, EnrichedHNItem, HNItem } from '../types';
 import { fetchMaxItemId, fetchTopStories, fetchItemsBatch } from '../hn-api';
-import { getState, updateState, logError, recordMetrics, batchUpsertItems, batchInsertSnapshots } from '../db';
+import { getState, updateState, logError, recordMetrics, batchUpsertItems, batchInsertSnapshots, batchUpdateItemsAI } from '../db';
 import { getCurrentTimestampMs, chunk } from '../utils';
 import { Config } from '../types';
+import { batchAnalyzeStories } from '../ai-analysis';
 
 /**
  * Main discovery worker entry point
@@ -21,6 +22,7 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
   let itemsProcessed = 0;
   let itemsChanged = 0;
   let snapshotsCreated = 0;
+  let itemsAnalyzed = 0;
   let errors = 0;
   const errorMessages: string[] = [];
   
@@ -80,6 +82,9 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
     
     console.log(`[Discovery] Processing ${newIds.length} new items`);
     
+    // Collect all new stories for AI analysis at the end
+    const newStories: HNItem[] = [];
+    
     // Step 4: Fetch and process items in batches
     const batches = chunk(newIds, Config.BATCH_SIZE);
     let currentBatchNum = 0;
@@ -109,6 +114,10 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
           snapshotsCreated += batchResult.snapshots.length;
         }
         
+        // Collect new stories for AI analysis
+        const stories = items.filter(item => item.type === 'story' && item.title);
+        newStories.push(...stories);
+        
         console.log(`[Discovery] Batch ${currentBatchNum}: Processed ${batchResult.processed}, changed ${batchResult.changed}, snapshots ${batchResult.snapshots.length}`);
         
         // Update progress after each batch (enables resume on timeout)
@@ -133,6 +142,49 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
       }
     }
     
+    // Step 5: AI Analysis for new stories
+    // Only analyze if we have the AI binding and stories to analyze
+    if (env.AI && newStories.length > 0) {
+      try {
+        console.log(`[Discovery] Running AI analysis on ${newStories.length} new stories`);
+        
+        // Limit to 50 stories per run to stay within neuron quota
+        // Free tier: 10,000 neurons/day, ~55 neurons per story = ~180 stories/day
+        const maxAnalysis = Math.min(newStories.length, 50);
+        const storiesToAnalyze = newStories.slice(0, maxAnalysis);
+        
+        const aiResults = await batchAnalyzeStories(env.AI, storiesToAnalyze, maxAnalysis);
+        
+        // Convert to format for database update
+        const analysisData = new Map<number, { topic: string | null; contentType: string | null; sentiment: number | null; analyzedAt: number }>();
+        for (const [itemId, result] of aiResults) {
+          analysisData.set(itemId, {
+            topic: result.topic,
+            contentType: result.contentType,
+            sentiment: result.sentiment,
+            analyzedAt: result.analyzedAt,
+          });
+        }
+        
+        // Batch update AI results
+        if (analysisData.size > 0) {
+          await batchUpdateItemsAI(env.DB, analysisData);
+          itemsAnalyzed = analysisData.size;
+          console.log(`[Discovery] AI analysis complete: ${itemsAnalyzed} stories analyzed`);
+        }
+        
+      } catch (error) {
+        // AI analysis failure shouldn't fail the entire discovery run
+        console.error('[Discovery] AI analysis failed, continuing:', error);
+        errors++;
+        errorMessages.push(`AI analysis failed: ${error}`);
+        
+        if (error instanceof Error) {
+          await logError(env.DB, workerType, error, { context: 'ai_analysis' });
+        }
+      }
+    }
+    
     // Update final state
     await updateState(env.DB, 'max_item_id_seen', maxId);
     await updateState(env.DB, 'last_discovery_run', getCurrentTimestampMs());
@@ -149,7 +201,7 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
       errors,
     });
     
-    console.log(`[Discovery] Completed: ${itemsProcessed} processed, ${itemsChanged} changed, ${snapshotsCreated} snapshots, ${errors} errors in ${duration}ms`);
+    console.log(`[Discovery] Completed: ${itemsProcessed} processed, ${itemsChanged} changed, ${snapshotsCreated} snapshots, ${itemsAnalyzed} AI analyzed, ${errors} errors in ${duration}ms`);
     
     return {
       success: errors === 0,

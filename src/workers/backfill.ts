@@ -2,13 +2,15 @@
  * Backfill Worker
  * Refreshes stale items (not updated recently)
  * Runs every 6 hours to catch updates missed by /v0/updates endpoint
+ * Also backfills AI analysis for unanalyzed stories
  */
 
 import type { WorkerEnv, WorkerResult, EnrichedHNItem } from '../types';
 import { fetchItemsBatch } from '../hn-api';
-import { batchUpsertItems, batchInsertSnapshots, getStaleItems, updateState, logError, recordMetrics } from '../db';
+import { batchUpsertItems, batchInsertSnapshots, getStaleItems, updateState, logError, recordMetrics, getItemsNeedingAIAnalysis, batchUpdateItemsAI } from '../db';
 import { getCurrentTimestampMs } from '../utils';
 import { Config } from '../types';
+import { batchAnalyzeStories } from '../ai-analysis';
 
 /**
  * Main backfill worker entry point
@@ -102,6 +104,61 @@ export async function runBackfill(env: WorkerEnv): Promise<WorkerResult> {
     // Update state
     await updateState(env.DB, 'last_backfill_run', getCurrentTimestampMs());
     
+    // Step 3: AI Analysis backfill for unanalyzed stories
+    // Run after regular backfill to stay within neuron quota
+    let itemsAnalyzed = 0;
+    if (env.AI) {
+      try {
+        console.log('[Backfill] Running AI analysis backfill');
+        
+        // Get stories that haven't been analyzed yet (limit to 50 per run)
+        const unanalyzedStories = await getItemsNeedingAIAnalysis(env.DB, 50);
+        
+        if (unanalyzedStories.length > 0) {
+          console.log(`[Backfill] Found ${unanalyzedStories.length} unanalyzed stories`);
+          
+          // Convert to HNItem format for analysis
+          const storiesToAnalyze = unanalyzedStories.map(s => ({
+            id: s.id,
+            type: s.type as 'story',
+            title: s.title,
+            url: s.url || undefined,
+            time: 0, // Not needed for analysis
+          }));
+          
+          const aiResults = await batchAnalyzeStories(env.AI, storiesToAnalyze, 50);
+          
+          // Convert to format for database update
+          const analysisData = new Map<number, { topic: string | null; contentType: string | null; sentiment: number | null; analyzedAt: number }>();
+          for (const [itemId, result] of aiResults) {
+            analysisData.set(itemId, {
+              topic: result.topic,
+              contentType: result.contentType,
+              sentiment: result.sentiment,
+              analyzedAt: result.analyzedAt,
+            });
+          }
+          
+          if (analysisData.size > 0) {
+            await batchUpdateItemsAI(env.DB, analysisData);
+            itemsAnalyzed = analysisData.size;
+            console.log(`[Backfill] AI analysis backfill complete: ${itemsAnalyzed} stories analyzed`);
+          }
+        } else {
+          console.log('[Backfill] No unanalyzed stories found');
+        }
+      } catch (error) {
+        // AI analysis failure shouldn't fail the entire backfill run
+        console.error('[Backfill] AI analysis backfill failed, continuing:', error);
+        errors++;
+        errorMessages.push(`AI analysis backfill failed: ${error}`);
+        
+        if (error instanceof Error) {
+          await logError(env.DB, workerType, error, { context: 'ai_backfill' });
+        }
+      }
+    }
+    
     const duration = getCurrentTimestampMs() - startTime;
     
     // Record metrics
@@ -114,7 +171,7 @@ export async function runBackfill(env: WorkerEnv): Promise<WorkerResult> {
       errors,
     });
     
-    console.log(`[Backfill] Completed: ${itemsProcessed} processed, ${itemsChanged} changed, ${snapshotsCreated} snapshots, ${errors} errors in ${duration}ms`);
+    console.log(`[Backfill] Completed: ${itemsProcessed} processed, ${itemsChanged} changed, ${snapshotsCreated} snapshots, ${itemsAnalyzed} AI analyzed, ${errors} errors in ${duration}ms`);
     
     return {
       success: errors === 0,

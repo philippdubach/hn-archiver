@@ -27,8 +27,12 @@ import {
   getViralPosts,
   getTopDomains,
   getDetailedStats,
+  getAIAnalysisStats,
+  getItemsNeedingAIAnalysis,
+  batchUpdateItemsAI,
 } from './db';
 import { getCurrentTimestampMs } from './utils';
+import { batchAnalyzeStories } from './ai-analysis';
 
 /**
  * Scheduled event handler - routes cron triggers to appropriate workers
@@ -97,30 +101,44 @@ export default {
     try {
       // Health check endpoint
       if (path === '/health' || path === '/') {
-        const stats = await getArchiveStats(env.DB);
+        let dbStatus: 'connected' | 'error' = 'connected';
+        let stats: Awaited<ReturnType<typeof getArchiveStats>> | null = null;
+        
+        try {
+          stats = await getArchiveStats(env.DB);
+        } catch (e) {
+          console.error('[Worker] Health check DB query failed:', e);
+          dbStatus = 'error';
+        }
+        
         const now = getCurrentTimestampMs();
         
-        // Determine health status based on last run times
-        const timeSinceDiscovery = now - stats.last_discovery;
-        const timeSinceUpdates = now - stats.last_update_check;
-        
+        // Determine health status based on last run times and DB status
         let status: HealthResponse['status'] = 'healthy';
-        if (timeSinceDiscovery > Config.HEALTH_DEGRADED_DISCOVERY_MS || 
-            timeSinceUpdates > Config.HEALTH_DEGRADED_UPDATES_MS) {
-          status = 'degraded';
-        }
-        if (timeSinceDiscovery > Config.HEALTH_UNHEALTHY_DISCOVERY_MS) {
+        
+        if (dbStatus === 'error') {
           status = 'unhealthy';
+        } else if (stats) {
+          const timeSinceDiscovery = now - stats.last_discovery;
+          const timeSinceUpdates = now - stats.last_update_check;
+          
+          if (timeSinceDiscovery > Config.HEALTH_DEGRADED_DISCOVERY_MS || 
+              timeSinceUpdates > Config.HEALTH_DEGRADED_UPDATES_MS) {
+            status = 'degraded';
+          }
+          if (timeSinceDiscovery > Config.HEALTH_UNHEALTHY_DISCOVERY_MS) {
+            status = 'unhealthy';
+          }
         }
         
         const health: HealthResponse = {
           status,
           timestamp: now,
-          database: 'connected',
+          database: dbStatus,
           last_run: {
-            discovery: stats.last_discovery,
-            updates: stats.last_update_check,
-            backfill: stats.last_backfill,
+            discovery: stats?.last_discovery || 0,
+            updates: stats?.last_update_check || 0,
+            backfill: stats?.last_backfill || 0,
           },
         };
         
@@ -154,13 +172,19 @@ export default {
 
       // Paginated items list
       if (path === '/api/items') {
-        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
-        const offset = parseInt(url.searchParams.get('offset') || '0');
+        const limitParam = parseInt(url.searchParams.get('limit') || '50');
+        const offsetParam = parseInt(url.searchParams.get('offset') || '0');
+        const limit = Math.min(isNaN(limitParam) ? 50 : limitParam, 100);
+        const offset = isNaN(offsetParam) ? 0 : Math.max(0, offsetParam);
         const type = url.searchParams.get('type') || undefined;
         const orderBy = (url.searchParams.get('orderBy') || 'time') as 'time' | 'score' | 'descendants';
         const order = (url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
         const sinceParam = url.searchParams.get('since');
-        const since = sinceParam ? parseInt(sinceParam) : undefined;
+        const sinceParsed = sinceParam ? parseInt(sinceParam) : undefined;
+        // Validate since is a reasonable Unix timestamp (after year 2000, not in far future)
+        const since = sinceParsed && !isNaN(sinceParsed) && sinceParsed > 946684800 && sinceParsed < Date.now() / 1000 + 86400 
+          ? sinceParsed 
+          : undefined;
 
         const result = await getItems(env.DB, { limit, offset, type, orderBy, order, since });
         
@@ -197,7 +221,8 @@ export default {
 
       // Worker metrics
       if (path === '/api/metrics') {
-        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 100);
+        const limitParam = parseInt(url.searchParams.get('limit') || '50');
+        const limit = Math.min(isNaN(limitParam) ? 50 : limitParam, 100);
         const metrics = await getRecentMetrics(env.DB, limit);
         
         return new Response(JSON.stringify(metrics), {
@@ -260,6 +285,15 @@ export default {
         });
       }
 
+      // AI analysis statistics
+      if (path === '/api/ai-analytics') {
+        const aiStats = await getAIAnalysisStats(env.DB);
+        
+        return new Response(JSON.stringify(aiStats), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
       // Manual trigger endpoints (useful for testing)
       // Protected by optional TRIGGER_SECRET environment variable
       if (path.startsWith('/trigger/')) {
@@ -276,39 +310,91 @@ export default {
             );
           }
         }
-      }
+        
+        // Auth passed (or no secret configured) - handle trigger routes
+        if (path === '/trigger/discovery') {
+          const result = await runDiscovery(env);
+          return new Response(JSON.stringify(result, null, 2), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            status: result.success ? 200 : 500,
+          });
+        }
 
-      if (path === '/trigger/discovery') {
-        const result = await runDiscovery(env);
-        return new Response(JSON.stringify(result, null, 2), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-          status: result.success ? 200 : 500,
-        });
-      }
+        if (path === '/trigger/updates') {
+          const result = await runUpdateTracker(env);
+          return new Response(JSON.stringify(result, null, 2), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            status: result.success ? 200 : 500,
+          });
+        }
 
-      if (path === '/trigger/updates') {
-        const result = await runUpdateTracker(env);
-        return new Response(JSON.stringify(result, null, 2), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-          status: result.success ? 200 : 500,
-        });
-      }
+        if (path === '/trigger/backfill') {
+          const result = await runBackfill(env);
+          return new Response(JSON.stringify(result, null, 2), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            status: result.success ? 200 : 500,
+          });
+        }
 
-      if (path === '/trigger/backfill') {
-        const result = await runBackfill(env);
-        return new Response(JSON.stringify(result, null, 2), {
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-          status: result.success ? 200 : 500,
-        });
+        // Dedicated AI backfill endpoint - analyzes unanalyzed stories
+        if (path === '/trigger/ai-backfill') {
+          if (!env.AI) {
+            return new Response(JSON.stringify({ error: 'AI binding not configured' }), {
+              status: 500,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
+          
+          const startTime = getCurrentTimestampMs();
+          let itemsAnalyzed = 0;
+          let error: string | null = null;
+          
+          try {
+            // Get up to 50 unanalyzed stories
+            const unanalyzedStories = await getItemsNeedingAIAnalysis(env.DB, 50);
+            
+            if (unanalyzedStories.length > 0) {
+              const storiesToAnalyze = unanalyzedStories.map(s => ({
+                id: s.id,
+                type: s.type as 'story',
+                title: s.title,
+                url: s.url || undefined,
+                time: 0,
+              }));
+              
+              const aiResults = await batchAnalyzeStories(env.AI, storiesToAnalyze, 50);
+              
+              const analysisData = new Map<number, { topic: string | null; contentType: string | null; sentiment: number | null; analyzedAt: number }>();
+              for (const [itemId, result] of aiResults) {
+                analysisData.set(itemId, {
+                  topic: result.topic,
+                  contentType: result.contentType,
+                  sentiment: result.sentiment,
+                  analyzedAt: result.analyzedAt,
+                });
+              }
+              
+              if (analysisData.size > 0) {
+                await batchUpdateItemsAI(env.DB, analysisData);
+                itemsAnalyzed = analysisData.size;
+              }
+            }
+          } catch (e) {
+            error = e instanceof Error ? e.message : String(e);
+          }
+          
+          const duration = getCurrentTimestampMs() - startTime;
+          
+          return new Response(JSON.stringify({
+            success: error === null,
+            items_analyzed: itemsAnalyzed,
+            duration_ms: duration,
+            error,
+          }, null, 2), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            status: error ? 500 : 200,
+          });
+        }
       }
 
       // Default response
@@ -324,9 +410,12 @@ export default {
             api_item: '/api/item/:id',
             api_metrics: '/api/metrics',
             api_analytics: '/api/analytics',
+            api_advanced_analytics: '/api/advanced-analytics',
+            api_ai_analytics: '/api/ai-analytics',
             trigger_discovery: '/trigger/discovery',
             trigger_updates: '/trigger/updates',
             trigger_backfill: '/trigger/backfill',
+            trigger_ai_backfill: '/trigger/ai-backfill',
           },
         }, null, 2),
         {

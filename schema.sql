@@ -68,6 +68,11 @@ CREATE INDEX IF NOT EXISTS idx_items_parent
 CREATE INDEX IF NOT EXISTS idx_items_time 
     ON items(time DESC);
 
+-- Composite index for type + time filtering (used by /api/items with since parameter)
+CREATE INDEX IF NOT EXISTS idx_items_type_time 
+    ON items(type, time DESC)
+    WHERE type != 'comment';
+
 -- Selective snapshots for time-series analysis
 CREATE TABLE IF NOT EXISTS item_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

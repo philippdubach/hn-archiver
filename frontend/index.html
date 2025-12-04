@@ -285,6 +285,17 @@
     const pageSize = 50;
     let totalItems = 0;
     const commentsCache = new Map();
+    const CACHE_MAX_SIZE = 50; // Limit cache to prevent memory leaks
+
+    // LRU-style cache management
+    function addToCache(key, value) {
+      // If cache is at max size, remove oldest entry
+      if (commentsCache.size >= CACHE_MAX_SIZE) {
+        const firstKey = commentsCache.keys().next().value;
+        commentsCache.delete(firstKey);
+      }
+      commentsCache.set(key, value);
+    }
 
     async function loadStats() {
       try {
@@ -487,7 +498,7 @@
         );
         
         const validComments = comments.filter(c => c?.item).map(c => c.item);
-        commentsCache.set(itemId, { comments: validComments, hasMore: kids.length > 10 });
+        addToCache(itemId, { comments: validComments, hasMore: kids.length > 10 });
         renderComments(container, commentsCache.get(itemId));
       } catch (e) {
         console.error('Failed to load comments:', e);
@@ -506,9 +517,31 @@
           <div class="comment-header">
             <span class="author">${escapeHtml(c.by) || 'unknown'}</span> | ${formatTime(c.time)}
           </div>
-          <div class="comment-text">${c.text || '<em>[no text]</em>'}</div>
+          <div class="comment-text">${sanitizeHtml(c.text) || '<em>[no text]</em>'}</div>
         </div>
       `).join('') + (hasMore ? '<div class="comments-loading">... and more on HN</div>' : '');
+    }
+
+    // Sanitize HTML from HN comments - allow safe tags, escape dangerous ones
+    function sanitizeHtml(html) {
+      if (!html) return '';
+      // Create a temporary element to parse HTML
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      // Remove script tags and event handlers
+      temp.querySelectorAll('script').forEach(el => el.remove());
+      // Walk through all elements and remove dangerous attributes
+      temp.querySelectorAll('*').forEach(el => {
+        // Remove event handlers and javascript: URLs
+        for (const attr of [...el.attributes]) {
+          if (attr.name.startsWith('on') || 
+              (attr.name === 'href' && attr.value.toLowerCase().startsWith('javascript:')) ||
+              (attr.name === 'src' && attr.value.toLowerCase().startsWith('javascript:'))) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      });
+      return temp.innerHTML;
     }
 
     function renderPagination() {

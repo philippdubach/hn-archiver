@@ -79,9 +79,15 @@ export interface WorkerMetrics {
   errors: number;
 }
 
+// Workers AI binding type
+export interface AIBinding {
+  run(model: string, inputs: unknown): Promise<unknown>;
+}
+
 // Worker environment bindings
 export interface WorkerEnv {
   DB: D1Database;
+  AI: AIBinding;
 }
 
 // Worker execution result

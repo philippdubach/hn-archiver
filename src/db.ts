@@ -1084,3 +1084,160 @@ export async function getDetailedStats(db: D1Database): Promise<{
     throw new DatabaseError('Failed to get detailed stats', 'get_detailed_stats', error);
   }
 }
+
+// ============================================
+// AI Analysis Functions
+// ============================================
+
+export interface AIAnalysisData {
+  topic: string | null;
+  contentType: string | null;
+  sentiment: number | null;
+  analyzedAt: number;
+}
+
+/**
+ * Update AI analysis results for an item
+ */
+export async function updateItemAI(
+  db: D1Database,
+  itemId: number,
+  analysis: AIAnalysisData
+): Promise<void> {
+  try {
+    await db
+      .prepare(`
+        UPDATE items SET
+          ai_topic = ?,
+          ai_content_type = ?,
+          ai_sentiment = ?,
+          ai_analyzed_at = ?
+        WHERE id = ?
+      `)
+      .bind(
+        analysis.topic,
+        analysis.contentType,
+        analysis.sentiment,
+        analysis.analyzedAt,
+        itemId
+      )
+      .run();
+  } catch (error) {
+    throw new DatabaseError(
+      `Failed to update AI analysis for item ${itemId}`,
+      'update_item_ai',
+      error
+    );
+  }
+}
+
+/**
+ * Batch update AI analysis results for multiple items
+ */
+export async function batchUpdateItemsAI(
+  db: D1Database,
+  analyses: Map<number, AIAnalysisData>
+): Promise<number> {
+  if (analyses.size === 0) return 0;
+  
+  const statements: D1PreparedStatement[] = [];
+  
+  for (const [itemId, analysis] of analyses) {
+    statements.push(
+      db.prepare(`
+        UPDATE items SET
+          ai_topic = ?,
+          ai_content_type = ?,
+          ai_sentiment = ?,
+          ai_analyzed_at = ?
+        WHERE id = ?
+      `)
+        .bind(
+          analysis.topic,
+          analysis.contentType,
+          analysis.sentiment,
+          analysis.analyzedAt,
+          itemId
+        )
+    );
+  }
+  
+  await db.batch(statements);
+  return analyses.size;
+}
+
+/**
+ * Get items that haven't been analyzed by AI yet
+ */
+export async function getItemsNeedingAIAnalysis(
+  db: D1Database,
+  limit: number = 50
+): Promise<Array<{ id: number; title: string; url: string | null; type: string }>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT id, title, url, type
+        FROM items
+        WHERE type = 'story' 
+          AND title IS NOT NULL 
+          AND ai_analyzed_at IS NULL
+          AND deleted = 0
+        ORDER BY first_seen_at DESC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<{ id: number; title: string; url: string | null; type: string }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get items needing AI analysis', 'get_items_needing_ai', error);
+  }
+}
+
+/**
+ * Get AI analysis statistics
+ */
+export async function getAIAnalysisStats(db: D1Database): Promise<{
+  total_analyzed: number;
+  total_pending: number;
+  topics: Array<{ topic: string; count: number }>;
+  content_types: Array<{ content_type: string; count: number }>;
+  avg_sentiment: number;
+}> {
+  try {
+    const [statsResult, topicsResult, contentTypesResult] = await Promise.all([
+      db.prepare(`
+        SELECT 
+          (SELECT COUNT(*) FROM items WHERE ai_analyzed_at IS NOT NULL) as total_analyzed,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NULL AND deleted = 0 AND title IS NOT NULL) as total_pending,
+          (SELECT ROUND(AVG(ai_sentiment), 3) FROM items WHERE ai_sentiment IS NOT NULL) as avg_sentiment
+      `).first<{ total_analyzed: number; total_pending: number; avg_sentiment: number }>(),
+      
+      db.prepare(`
+        SELECT ai_topic as topic, COUNT(*) as count
+        FROM items
+        WHERE ai_topic IS NOT NULL
+        GROUP BY ai_topic
+        ORDER BY count DESC
+      `).all<{ topic: string; count: number }>(),
+      
+      db.prepare(`
+        SELECT ai_content_type as content_type, COUNT(*) as count
+        FROM items
+        WHERE ai_content_type IS NOT NULL
+        GROUP BY ai_content_type
+        ORDER BY count DESC
+      `).all<{ content_type: string; count: number }>(),
+    ]);
+    
+    return {
+      total_analyzed: statsResult?.total_analyzed || 0,
+      total_pending: statsResult?.total_pending || 0,
+      topics: topicsResult.results || [],
+      content_types: contentTypesResult.results || [],
+      avg_sentiment: statsResult?.avg_sentiment || 0.5,
+    };
+  } catch (error) {
+    throw new DatabaseError('Failed to get AI analysis stats', 'get_ai_analysis_stats', error);
+  }
+}
