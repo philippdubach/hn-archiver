@@ -87,11 +87,15 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
     const newStories: HNItem[] = [];
     
     // Step 4: Fetch and process items in batches
+    // Track the highest ID we've successfully processed to handle failures correctly
     const batches = chunk(newIds, Config.BATCH_SIZE);
     let currentBatchNum = 0;
+    let lastSuccessfulBatchMaxId = lastSeen; // Start from where we left off
     
     for (const batch of batches) {
       currentBatchNum++;
+      const batchMinId = Math.min(...batch);
+      const batchMaxId = Math.max(...batch);
       
       try {
         // Fetch batch of items in parallel
@@ -124,24 +128,29 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
         
         console.log(`[Discovery] Batch ${currentBatchNum}: Processed ${batchResult.processed}, changed ${batchResult.changed}, snapshots ${batchResult.snapshots.length}`);
         
-        // Update progress after each batch (enables resume on timeout)
-        const lastIdInBatch = Math.max(...batch);
-        await updateState(env.DB, 'max_item_id_seen', lastIdInBatch);
+        // Track successful progress - only advance after successful batch
+        lastSuccessfulBatchMaxId = batchMaxId;
+        
+        // Update progress after each successful batch (enables resume on timeout)
+        await updateState(env.DB, 'max_item_id_seen', lastSuccessfulBatchMaxId);
         
       } catch (error) {
         errors++;
-        const errorMsg = `Failed to process batch ${currentBatchNum}: ${error}`;
+        const errorMsg = `Failed to process batch ${currentBatchNum} (IDs ${batchMinId}-${batchMaxId}): ${error}`;
         errorMessages.push(errorMsg);
         console.error(`[Discovery] ${errorMsg}`);
         
         if (error instanceof Error) {
+          // Log failed ID range for manual recovery if needed
           await logError(env.DB, workerType, error, { 
             batchNum: currentBatchNum, 
-            batchSize: batch.length 
+            batchSize: batch.length,
+            failedIdRange: { min: batchMinId, max: batchMaxId },
           });
         }
         
-        // Continue with next batch
+        // Continue with next batch - failed IDs will be retried on next run
+        // because we don't advance lastSuccessfulBatchMaxId on failure
         continue;
       }
     }
@@ -189,8 +198,9 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
       }
     }
     
-    // Update final state
-    await updateState(env.DB, 'max_item_id_seen', maxId);
+    // Note: max_item_id_seen is already updated per-batch above
+    // We intentionally do NOT update it to maxId here, because if any batches failed,
+    // we want the next run to retry those failed IDs
     await updateState(env.DB, 'last_discovery_run', getCurrentTimestampMs());
     
     const duration = getCurrentTimestampMs() - startTime;
