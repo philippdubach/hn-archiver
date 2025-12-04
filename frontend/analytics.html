@@ -251,6 +251,157 @@
       padding-bottom: 10px;
       border-bottom: 2px solid #ff6600;
     }
+    /* AI Analytics Styles */
+    .topic-colors {
+      --ai: #e74c3c;
+      --programming: #3498db;
+      --web-development: #9b59b6;
+      --startups: #f39c12;
+      --science: #1abc9c;
+      --security: #e67e22;
+      --crypto-blockchain: #f1c40f;
+      --hardware: #95a5a6;
+      --career: #2ecc71;
+      --politics: #c0392b;
+      --business: #16a085;
+      --gaming: #8e44ad;
+      --other: #7f8c8d;
+    }
+    .ai-coverage-mini {
+      font-size: 0.75rem;
+      color: #666;
+      padding: 4px 8px;
+      background: #f0f0f0;
+      border-radius: 4px;
+    }
+    .ai-coverage-mini .count {
+      color: #ff6600;
+      font-weight: 600;
+    }
+    .sentiment-bar-container {
+      display: flex;
+      height: 30px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin: 15px 0;
+    }
+    .sentiment-bar-segment {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 500;
+      min-width: 30px;
+      transition: flex 0.3s ease;
+    }
+    .sentiment-bar-segment.negative { background: #e74c3c; }
+    .sentiment-bar-segment.slightly-negative { background: #e67e22; }
+    .sentiment-bar-segment.neutral { background: #f39c12; }
+    .sentiment-bar-segment.slightly-positive { background: #27ae60; }
+    .sentiment-bar-segment.positive { background: #2ecc71; }
+    .sentiment-legend {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 8px;
+    }
+    .sentiment-avg {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+    .sentiment-gauge {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: conic-gradient(
+        #e74c3c 0deg,
+        #f39c12 90deg,
+        #2ecc71 180deg,
+        #2ecc71 270deg,
+        #2ecc71 360deg
+      );
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .sentiment-gauge::before {
+      content: '';
+      width: 60px;
+      height: 60px;
+      background: white;
+      border-radius: 50%;
+      position: absolute;
+    }
+    .sentiment-gauge .value {
+      position: relative;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #333;
+    }
+    .sentiment-gauge-label {
+      font-size: 0.85rem;
+      color: #666;
+    }
+    .sentiment-gauge-label .highlight {
+      color: #ff6600;
+      font-weight: 600;
+    }
+    .topic-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .topic-bar .label {
+      min-width: 120px;
+      font-size: 0.8rem;
+      color: #666;
+      text-align: right;
+    }
+    .topic-bar .bar-bg {
+      flex: 1;
+      height: 20px;
+      background: #f0f0f0;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .topic-bar .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      padding-left: 8px;
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .topic-bar .stats {
+      min-width: 80px;
+      font-size: 0.75rem;
+      color: #999;
+      text-align: right;
+    }
+    .empty-ai {
+      text-align: center;
+      padding: 30px 20px;
+      color: #999;
+    }
+    .empty-ai .icon {
+      font-size: 2rem;
+      margin-bottom: 10px;
+    }
+    .empty-ai a {
+      color: #ff6600;
+      text-decoration: none;
+    }
+    .empty-ai a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -345,6 +496,66 @@
       </div>
     </div>
 
+    <!-- AI Content Analysis -->
+    <h3 class="section-title">AI Content Analysis</h3>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Topic Distribution</h2>
+          <div id="aiCoverage" class="ai-coverage-mini"></div>
+        </div>
+        <div id="topicChart">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="topicInsight"></div>
+      </div>
+      
+      <div class="card">
+        <h2>Content Type Performance</h2>
+        <div id="contentTypeChart">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="contentTypeInsight"></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Sentiment Analysis</h2>
+        <div id="sentimentChart">
+          <div class="loading">Loading</div>
+        </div>
+        <div id="sentimentInsight"></div>
+      </div>
+      
+      <div class="card">
+        <h2>Sentiment by Topic</h2>
+        <div id="sentimentByTopicChart">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Most Positive Posts</h2>
+        </div>
+        <div id="positivePostsTable">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header">
+          <h2>Most Negative Posts</h2>
+        </div>
+        <div id="negativePostsTable">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
     <!-- System Metrics -->
     <h3 class="section-title">System Performance</h3>
     <div class="grid">
@@ -380,12 +591,36 @@
     let analyticsData = {};
     let topItemsData = { score: [], descendants: [] };
     let authorData = { volume: [], success: [] };
+    let aiAnalyticsData = {};
+    
+    // Helper to format labels (e.g., 'artificial-intelligence' -> 'Artificial Intelligence')
+    function formatLabel(str) {
+      return str.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    
+    // Topic color mapping
+    const TOPIC_COLORS = {
+      'artificial-intelligence': '#e74c3c',
+      'programming': '#3498db',
+      'web-development': '#9b59b6',
+      'startups': '#f39c12',
+      'science': '#1abc9c',
+      'security': '#e67e22',
+      'crypto-blockchain': '#f1c40f',
+      'hardware': '#95a5a6',
+      'career': '#2ecc71',
+      'politics': '#c0392b',
+      'business': '#16a085',
+      'gaming': '#8e44ad',
+      'other': '#7f8c8d'
+    };
 
     async function loadAll() {
       await Promise.all([
         loadOverview(),
         loadBasicAnalytics(),
         loadAdvancedAnalytics(),
+        loadAIAnalytics(),
         loadMetrics()
       ]);
       generateInsights();
@@ -508,6 +743,326 @@
         console.error('Failed to load advanced analytics:', e);
         document.getElementById('hourChart').innerHTML = '<div class="empty">Advanced analytics endpoint not available</div>';
         document.getElementById('dayChart').innerHTML = '<div class="empty">Add /api/advanced-analytics to worker</div>';
+      }
+    }
+
+    async function loadAIAnalytics() {
+      try {
+        const response = await fetch(`${API_BASE}/api/ai-analytics-extended`);
+        if (!response.ok) throw new Error('API request failed');
+        
+        const data = await response.json();
+        aiAnalyticsData = data;
+        
+        // Render AI coverage badge
+        renderAICoverage(data);
+        
+        // Render topic distribution
+        renderTopicChart(data.topic_performance || []);
+        
+        // Render content type performance
+        renderContentTypeChart(data.content_type_performance || []);
+        
+        // Render sentiment analysis
+        renderSentimentChart(data);
+        
+        // Render sentiment by topic
+        renderSentimentByTopic(data.sentiment_by_topic || []);
+        
+        // Render top posts by sentiment
+        renderPostsBySentiment(data.top_posts_by_sentiment || {});
+        
+      } catch (e) {
+        console.error('Failed to load AI analytics:', e);
+        const emptyMsg = `
+          <div class="empty-ai">
+            <div class="icon">🤖</div>
+            <p>AI analysis data not available yet.</p>
+            <p><a href="#" onclick="triggerAIBackfill(); return false;">Run AI backfill</a> to analyze stories.</p>
+          </div>
+        `;
+        document.getElementById('topicChart').innerHTML = emptyMsg;
+        document.getElementById('contentTypeChart').innerHTML = '<div class="empty">No data</div>';
+        document.getElementById('sentimentChart').innerHTML = '<div class="empty">No data</div>';
+        document.getElementById('sentimentByTopicChart').innerHTML = '<div class="empty">No data</div>';
+        document.getElementById('positivePostsTable').innerHTML = '<div class="empty">No data</div>';
+        document.getElementById('negativePostsTable').innerHTML = '<div class="empty">No data</div>';
+      }
+    }
+    
+    function renderAICoverage(data) {
+      const total = data.total_analyzed || 0;
+      const pending = data.total_pending || 0;
+      const pct = total + pending > 0 ? Math.round((total / (total + pending)) * 100) : 0;
+      
+      document.getElementById('aiCoverage').innerHTML = `
+        <span class="count">${total.toLocaleString()}</span> analyzed (${pct}%)
+      `;
+    }
+    
+    function renderTopicChart(topics) {
+      if (!topics.length) {
+        document.getElementById('topicChart').innerHTML = `
+          <div class="empty-ai">
+            <div class="icon">🤖</div>
+            <p>No AI topic data yet.</p>
+          </div>
+        `;
+        document.getElementById('topicInsight').innerHTML = '';
+        return;
+      }
+      
+      const maxCount = Math.max(...topics.map(t => t.count));
+      const bestTopic = topics.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, topics[0]);
+      
+      document.getElementById('topicChart').innerHTML = topics.map(t => {
+        const width = maxCount > 0 ? (t.count / maxCount) * 100 : 0;
+        const color = TOPIC_COLORS[t.topic] || TOPIC_COLORS.other;
+        const label = formatLabel(t.topic);
+        return `
+          <div class="topic-bar">
+            <span class="label">${label}</span>
+            <div class="bar-bg">
+              <div class="bar-fill" style="width: ${width}%; background: ${color}">${t.count}</div>
+            </div>
+            <span class="stats">${t.avg_score} avg</span>
+          </div>
+        `;
+      }).join('');
+      
+      const bestLabel = formatLabel(bestTopic.topic);
+      document.getElementById('topicInsight').innerHTML = `
+        <div class="insight-box">
+          <h3>Best Performing Topic</h3>
+          <p><span class="highlight">${bestLabel}</span> posts have the highest average score (<span class="highlight">${bestTopic.avg_score}</span> points)</p>
+        </div>
+      `;
+    }
+    
+    function renderContentTypeChart(contentTypes) {
+      if (!contentTypes.length) {
+        document.getElementById('contentTypeChart').innerHTML = '<div class="empty">No content type data yet</div>';
+        document.getElementById('contentTypeInsight').innerHTML = '';
+        return;
+      }
+      
+      const maxAvg = Math.max(...contentTypes.map(c => c.avg_score || 0));
+      const colors = {
+        'show-hn': '#e74c3c',
+        'ask-hn': '#3498db',
+        'tell-hn': '#9b59b6',
+        'job': '#95a5a6',
+        'news': '#2ecc71',
+        'tutorial': '#f39c12',
+        'opinion': '#e67e22',
+        'research': '#1abc9c',
+        'launch': '#f1c40f',
+        'discussion': '#16a085',
+        'other': '#7f8c8d'
+      };
+      
+      document.getElementById('contentTypeChart').innerHTML = `
+        <div class="bar-chart">
+          ${contentTypes.map(c => {
+            const width = maxAvg > 0 ? ((c.avg_score || 0) / maxAvg) * 100 : 0;
+            const color = colors[c.content_type] || colors.other;
+            const label = formatLabel(c.content_type);
+            return `
+              <div class="bar-row">
+                <span class="bar-label" style="min-width: 90px">${label}</span>
+                <div class="bar-container">
+                  <div class="bar" style="width: ${Math.max(width, 5)}%; background: ${color}">${c.avg_score}</div>
+                </div>
+                <span style="min-width: 50px; text-align: right; color: #999; font-size: 0.75rem">${c.count} posts</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+      
+      const best = contentTypes[0];
+      if (best) {
+        const bestLabel = formatLabel(best.content_type);
+        document.getElementById('contentTypeInsight').innerHTML = `
+          <div class="insight-box">
+            <h3>Top Content Type</h3>
+            <p><span class="highlight">${bestLabel}</span> posts average <span class="highlight">${best.avg_score}</span> points with ${best.avg_comments} comments</p>
+          </div>
+        `;
+      }
+    }
+    
+    function renderSentimentChart(data) {
+      const distribution = data.sentiment_distribution || [];
+      const avgSentiment = data.avg_sentiment || 0.5;
+      
+      if (!distribution.length) {
+        document.getElementById('sentimentChart').innerHTML = '<div class="empty">No sentiment data yet</div>';
+        document.getElementById('sentimentInsight').innerHTML = '';
+        return;
+      }
+      
+      const total = distribution.reduce((sum, d) => sum + d.count, 0);
+      const bucketLabels = {
+        'negative': 'Negative',
+        'slightly_negative': 'Slightly -',
+        'neutral': 'Neutral',
+        'slightly_positive': 'Slightly +',
+        'positive': 'Positive'
+      };
+      const bucketClasses = {
+        'negative': 'negative',
+        'slightly_negative': 'slightly-negative',
+        'neutral': 'neutral',
+        'slightly_positive': 'slightly-positive',
+        'positive': 'positive'
+      };
+      
+      // Create sentiment gauge
+      const sentimentLabel = avgSentiment < 0.4 ? 'Negative' : 
+                            avgSentiment < 0.6 ? 'Neutral' : 'Positive';
+      
+      document.getElementById('sentimentChart').innerHTML = `
+        <div class="sentiment-avg">
+          <div class="sentiment-gauge">
+            <span class="value">${(avgSentiment * 100).toFixed(0)}%</span>
+          </div>
+          <div class="sentiment-gauge-label">
+            <p>Average sentiment: <span class="highlight">${sentimentLabel}</span></p>
+            <p style="font-size: 0.75rem; color: #999">Based on ${total.toLocaleString()} analyzed stories</p>
+          </div>
+        </div>
+        
+        <div class="sentiment-bar-container">
+          ${distribution.map(d => {
+            const pct = total > 0 ? (d.count / total) * 100 : 0;
+            return `
+              <div class="sentiment-bar-segment ${bucketClasses[d.bucket] || 'neutral'}" 
+                   style="flex: ${pct}" 
+                   title="${bucketLabels[d.bucket] || d.bucket}: ${d.count} (${pct.toFixed(1)}%)">
+                ${pct > 8 ? d.count : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+        
+        <div class="sentiment-legend">
+          <span>😠 Negative</span>
+          <span>😐 Neutral</span>
+          <span>😊 Positive</span>
+        </div>
+      `;
+      
+      // Find which sentiment performs best
+      const bestBucket = distribution.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, distribution[0]);
+      if (bestBucket) {
+        document.getElementById('sentimentInsight').innerHTML = `
+          <div class="insight-box">
+            <h3>Sentiment & Performance</h3>
+            <p><span class="highlight">${bucketLabels[bestBucket.bucket] || bestBucket.bucket}</span> posts perform best with <span class="highlight">${bestBucket.avg_score}</span> avg points</p>
+          </div>
+        `;
+      }
+    }
+    
+    function renderSentimentByTopic(sentimentByTopic) {
+      if (!sentimentByTopic.length) {
+        document.getElementById('sentimentByTopicChart').innerHTML = '<div class="empty">Not enough data yet</div>';
+        return;
+      }
+      
+      document.getElementById('sentimentByTopicChart').innerHTML = `
+        <div class="bar-chart">
+          ${sentimentByTopic.map(s => {
+            // Sentiment is 0-1, center at 0.5
+            const sentiment = s.avg_sentiment || 0.5;
+            const color = sentiment < 0.4 ? '#e74c3c' : 
+                         sentiment < 0.6 ? '#f39c12' : '#2ecc71';
+            const label = formatLabel(s.topic);
+            const pct = (sentiment * 100).toFixed(0);
+            return `
+              <div class="bar-row">
+                <span class="bar-label" style="min-width: 110px">${label}</span>
+                <div class="bar-container">
+                  <div class="bar" style="width: ${sentiment * 100}%; background: ${color}">${pct}%</div>
+                </div>
+                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">${s.count}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+    
+    function renderPostsBySentiment(data) {
+      const positive = data.most_positive || [];
+      const negative = data.most_negative || [];
+      
+      if (!positive.length) {
+        document.getElementById('positivePostsTable').innerHTML = '<div class="empty">No data yet</div>';
+      } else {
+        document.getElementById('positivePostsTable').innerHTML = `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th class="num">Sentiment</th>
+                <th class="num">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${positive.map(p => `
+                <tr>
+                  <td class="title-cell">
+                    <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
+                      ${escapeHtml(p.title || '[untitled]')}
+                    </a>
+                  </td>
+                  <td class="num" style="color: #2ecc71">${(p.sentiment * 100).toFixed(0)}%</td>
+                  <td class="num">${p.score || 0}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+      
+      if (!negative.length) {
+        document.getElementById('negativePostsTable').innerHTML = '<div class="empty">No data yet</div>';
+      } else {
+        document.getElementById('negativePostsTable').innerHTML = `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th class="num">Sentiment</th>
+                <th class="num">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${negative.map(p => `
+                <tr>
+                  <td class="title-cell">
+                    <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
+                      ${escapeHtml(p.title || '[untitled]')}
+                    </a>
+                  </td>
+                  <td class="num" style="color: #e74c3c">${(p.sentiment * 100).toFixed(0)}%</td>
+                  <td class="num">${p.score || 0}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+    }
+    
+    async function triggerAIBackfill() {
+      alert('AI backfill triggered. Refresh the page in a minute to see results.');
+      try {
+        await fetch(`${API_BASE}/trigger/ai-backfill`, { method: 'POST' });
+      } catch (e) {
+        console.error('Failed to trigger AI backfill:', e);
       }
     }
 
@@ -781,6 +1336,11 @@
       const successfulAuthors = analyticsData.successfulAuthors || [];
       const viralPosts = analyticsData.viralPosts || [];
       
+      // AI data
+      const topicPerf = aiAnalyticsData.topic_performance || [];
+      const contentTypePerf = aiAnalyticsData.content_type_performance || [];
+      const avgSentiment = aiAnalyticsData.avg_sentiment;
+      
       const insights = [];
       
       // Best posting time
@@ -793,6 +1353,26 @@
       if (postsByDay.length) {
         const bestDay = postsByDay.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a);
         insights.push(`<p><strong>Best day to post:</strong> ${bestDay.day_name} submissions perform best with ${bestDay.avg_score} avg points</p>`);
+      }
+      
+      // Best topic from AI
+      if (topicPerf.length) {
+        const bestTopic = topicPerf.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, topicPerf[0]);
+        const label = formatLabel(bestTopic.topic);
+        insights.push(`<p><strong>Best topic:</strong> ${label} stories average ${bestTopic.avg_score} points</p>`);
+      }
+      
+      // Best content type from AI
+      if (contentTypePerf.length) {
+        const bestType = contentTypePerf[0];
+        const label = formatLabel(bestType.content_type);
+        insights.push(`<p><strong>Best content type:</strong> ${label} posts lead with ${bestType.avg_score} avg points</p>`);
+      }
+      
+      // Overall sentiment
+      if (avgSentiment !== undefined) {
+        const sentimentLabel = avgSentiment < 0.4 ? 'negative' : avgSentiment < 0.6 ? 'neutral' : 'positive';
+        insights.push(`<p><strong>Community sentiment:</strong> HN titles are generally ${sentimentLabel} (${(avgSentiment * 100).toFixed(0)}% positive)</p>`);
       }
       
       // Top performer pattern

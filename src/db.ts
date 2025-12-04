@@ -1251,3 +1251,179 @@ export async function getAIAnalysisStats(db: D1Database): Promise<{
     throw new DatabaseError('Failed to get AI analysis stats', 'get_ai_analysis_stats', error);
   }
 }
+
+/**
+ * Get performance metrics by AI topic
+ */
+export async function getTopicPerformance(db: D1Database): Promise<Array<{
+  topic: string;
+  count: number;
+  avg_score: number;
+  avg_comments: number;
+  total_score: number;
+}>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          ai_topic as topic,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          ROUND(COALESCE(AVG(descendants), 0), 1) as avg_comments,
+          COALESCE(SUM(score), 0) as total_score
+        FROM items
+        WHERE ai_topic IS NOT NULL AND deleted = 0
+        GROUP BY ai_topic
+        ORDER BY count DESC
+      `)
+      .all<{ topic: string; count: number; avg_score: number; avg_comments: number; total_score: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get topic performance', 'get_topic_performance', error);
+  }
+}
+
+/**
+ * Get performance metrics by AI content type
+ */
+export async function getContentTypePerformance(db: D1Database): Promise<Array<{
+  content_type: string;
+  count: number;
+  avg_score: number;
+  avg_comments: number;
+}>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          ai_content_type as content_type,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          ROUND(COALESCE(AVG(descendants), 0), 1) as avg_comments
+        FROM items
+        WHERE ai_content_type IS NOT NULL AND deleted = 0
+        GROUP BY ai_content_type
+        ORDER BY avg_score DESC
+      `)
+      .all<{ content_type: string; count: number; avg_score: number; avg_comments: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get content type performance', 'get_content_type_performance', error);
+  }
+}
+
+/**
+ * Get sentiment distribution in buckets
+ */
+export async function getSentimentDistribution(db: D1Database): Promise<Array<{
+  bucket: string;
+  min_val: number;
+  max_val: number;
+  count: number;
+  avg_score: number;
+}>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          CASE 
+            WHEN ai_sentiment < 0.3 THEN 'negative'
+            WHEN ai_sentiment < 0.45 THEN 'slightly_negative'
+            WHEN ai_sentiment < 0.55 THEN 'neutral'
+            WHEN ai_sentiment < 0.7 THEN 'slightly_positive'
+            ELSE 'positive'
+          END as bucket,
+          CASE 
+            WHEN ai_sentiment < 0.3 THEN 0.0
+            WHEN ai_sentiment < 0.45 THEN 0.3
+            WHEN ai_sentiment < 0.55 THEN 0.45
+            WHEN ai_sentiment < 0.7 THEN 0.55
+            ELSE 0.7
+          END as min_val,
+          CASE 
+            WHEN ai_sentiment < 0.3 THEN 0.3
+            WHEN ai_sentiment < 0.45 THEN 0.45
+            WHEN ai_sentiment < 0.55 THEN 0.55
+            WHEN ai_sentiment < 0.7 THEN 0.7
+            ELSE 1.0
+          END as max_val,
+          COUNT(*) as count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score
+        FROM items
+        WHERE ai_sentiment IS NOT NULL AND deleted = 0
+        GROUP BY bucket
+        ORDER BY min_val ASC
+      `)
+      .all<{ bucket: string; min_val: number; max_val: number; count: number; avg_score: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get sentiment distribution', 'get_sentiment_distribution', error);
+  }
+}
+
+/**
+ * Get sentiment by topic
+ */
+export async function getSentimentByTopic(db: D1Database): Promise<Array<{
+  topic: string;
+  avg_sentiment: number;
+  count: number;
+}>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          ai_topic as topic,
+          ROUND(AVG(ai_sentiment), 3) as avg_sentiment,
+          COUNT(*) as count
+        FROM items
+        WHERE ai_topic IS NOT NULL AND ai_sentiment IS NOT NULL AND deleted = 0
+        GROUP BY ai_topic
+        HAVING count >= 3
+        ORDER BY avg_sentiment DESC
+      `)
+      .all<{ topic: string; avg_sentiment: number; count: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get sentiment by topic', 'get_sentiment_by_topic', error);
+  }
+}
+
+/**
+ * Get top posts by sentiment (most positive and most negative)
+ */
+export async function getTopPostsBySentiment(db: D1Database, limit: number = 5): Promise<{
+  most_positive: Array<{ id: number; title: string; sentiment: number; score: number }>;
+  most_negative: Array<{ id: number; title: string; sentiment: number; score: number }>;
+}> {
+  try {
+    const [positiveResult, negativeResult] = await Promise.all([
+      db.prepare(`
+        SELECT id, title, ai_sentiment as sentiment, score
+        FROM items
+        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0
+        ORDER BY ai_sentiment DESC
+        LIMIT ?
+      `).bind(limit).all<{ id: number; title: string; sentiment: number; score: number }>(),
+      
+      db.prepare(`
+        SELECT id, title, ai_sentiment as sentiment, score
+        FROM items
+        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0
+        ORDER BY ai_sentiment ASC
+        LIMIT ?
+      `).bind(limit).all<{ id: number; title: string; sentiment: number; score: number }>(),
+    ]);
+    
+    return {
+      most_positive: positiveResult.results || [],
+      most_negative: negativeResult.results || [],
+    };
+  } catch (error) {
+    throw new DatabaseError('Failed to get top posts by sentiment', 'get_top_posts_by_sentiment', error);
+  }
+}

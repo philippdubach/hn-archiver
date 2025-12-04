@@ -30,6 +30,11 @@ import {
   getAIAnalysisStats,
   getItemsNeedingAIAnalysis,
   batchUpdateItemsAI,
+  getTopicPerformance,
+  getContentTypePerformance,
+  getSentimentDistribution,
+  getSentimentByTopic,
+  getTopPostsBySentiment,
 } from './db';
 import { getCurrentTimestampMs } from './utils';
 import { batchAnalyzeStories } from './ai-analysis';
@@ -293,6 +298,36 @@ export default {
         const aiStats = await getAIAnalysisStats(env.DB);
         
         return new Response(JSON.stringify(aiStats), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Extended AI analytics with performance data
+      if (path === '/api/ai-analytics-extended') {
+        const [
+          basicStats,
+          topicPerformance,
+          contentTypePerformance,
+          sentimentDistribution,
+          sentimentByTopic,
+          topPostsBySentiment,
+        ] = await Promise.all([
+          getAIAnalysisStats(env.DB),
+          getTopicPerformance(env.DB),
+          getContentTypePerformance(env.DB),
+          getSentimentDistribution(env.DB),
+          getSentimentByTopic(env.DB),
+          getTopPostsBySentiment(env.DB, 5),
+        ]);
+        
+        return new Response(JSON.stringify({
+          ...basicStats,
+          topic_performance: topicPerformance,
+          content_type_performance: contentTypePerformance,
+          sentiment_distribution: sentimentDistribution,
+          sentiment_by_topic: sentimentByTopic,
+          top_posts_by_sentiment: topPostsBySentiment,
+        }), {
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
       }
