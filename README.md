@@ -1,26 +1,27 @@
 # HackerNews Archiver
 
-A HackerNews archiving system built on Cloudflare Workers. Captures posts and comments in real-time, tracks how they change over time, classifies content with AI, and supports semantic similarity search using vector embeddings.
+A real-time HackerNews archiving system built on Cloudflare Workers. Captures every post and comment as they appear, tracks score/comment changes over time with intelligent snapshots, classifies content using Workers AI, and supports semantic similarity search via vector embeddings.
 
 ## Features
 
-- Archives every new HN submission and comment as they appear
-- Tracks score and comment count changes with periodic snapshots
-- Classifies content by topic, type, and sentiment using Workers AI
-- Generates vector embeddings for similarity search via Cloudflare Vectorize
-- Provides a web interface for browsing the archive and viewing analytics
-- Protected admin endpoints for manual triggers and expensive operations
+- **Real-time archiving** - Discovers new items every 3 minutes via HN API `/v0/maxitem`
+- **Change tracking** - Monitors score/comment count changes with snapshots on score spikes (≥20 points), front page appearances, and periodic sampling
+- **AI classification** - Topic categorization (13 categories), content type detection (Show HN, Ask HN, news, tutorial, etc.), and sentiment analysis
+- **Similarity search** - 768-dimensional embeddings via BGE model for finding related posts
+- **Web interface** - Embedded frontend for browsing archive and analytics dashboard
+- **Budget-aware** - Built-in usage tracking to stay within Cloudflare paid plan limits
 
 ## Architecture
 
-Four workers run on cron schedules:
+Three cron-triggered workers handle data flow:
 
-- **Discovery** (every 3 min) - fetches new items from `/v0/maxitem`
-- **Updates** (every 10 min) - refreshes changed items via `/v0/updates`
-- **Backfill** (every 2 hours) - revisits high-value older items and runs AI analysis
-- **Embedding backfill** - generates vector embeddings for analyzed stories (runs within backfill)
+| Worker | Schedule | Function |
+|--------|----------|----------|
+| **Discovery** | `*/3 * * * *` (every 3 min) | Fetches new items from `lastSeen+1` to current `maxitem` |
+| **Updates** | `*/10 * * * *` (every 10 min) | Refreshes recently changed items via `/v0/updates` |
+| **Backfill** | `0 */2 * * *` (every 2 hours) | Revisits stale high-value items (score>50 OR descendants>20), runs AI analysis, generates embeddings, cleans up old logs |
 
-All data lives in D1 (SQLite). Vector embeddings are stored in Cloudflare Vectorize for similarity search. The frontend is static HTML/JS served directly from the worker.
+**Data flow**: HN API → Discovery/Updates workers → D1 `items` table → Backfill worker → AI analysis (`ai_topic`, `ai_sentiment`, `ai_content_type` columns) → Vectorize index `hn-similar`
 
 ## Setup
 
@@ -49,69 +50,102 @@ npm run deploy
 
 ## API Endpoints
 
-### Public (read-only)
+### Public (rate-limited to 100 req/IP/min)
 
 | Path | Description |
 |------|-------------|
-| `/` | Health check and status |
-| `/stats` | Archive statistics |
-| `/api/items` | Paginated item list with filtering |
-| `/api/item/:id` | Single item with snapshot history |
-| `/api/analytics` | Basic type distribution and top items |
-| `/api/advanced-analytics` | Authors, domains, viral posts, time patterns |
-| `/api/ai-analytics` | AI classification breakdown |
-| `/api/ai-analytics-extended` | Full AI stats with topic/sentiment performance |
-| `/api/embedding-analytics` | Embedding coverage and topic similarity matrix |
-| `/api/usage` | Budget monitoring for Vectorize queries |
-| `/api/metrics` | Worker run history |
+| `/` | Archive browser frontend |
+| `/analytics` | Analytics dashboard frontend |
+| `/health` | Health check with last run times |
+| `/stats` | Archive statistics (total items, today's counts, etc.) |
+| `/api/items` | Paginated items with filtering (`?limit=50&offset=0&type=story&orderBy=time&order=desc&since=UNIX_TS`) |
+| `/api/item/:id` | Single item with full snapshot history |
+| `/api/analytics` | Type distribution, snapshot reasons, top items |
+| `/api/advanced-analytics` | Authors, domains, viral posts, posting patterns by hour/day |
+| `/api/ai-analytics` | AI classification breakdown by topic/type |
+| `/api/ai-analytics-extended` | Full AI stats with performance metrics by topic/sentiment |
+| `/api/embedding-analytics` | Embedding coverage, topic clusters, cached similarity matrix |
+| `/api/usage` | Budget monitoring (Vectorize queries, stored vectors) |
+| `/api/metrics` | Worker run history with durations and error counts |
 
-### Protected (require Authorization header)
+### Protected (require `Authorization: Bearer <TRIGGER_SECRET>`)
 
 | Path | Description |
 |------|-------------|
 | `/trigger/discovery` | Manual discovery run |
 | `/trigger/updates` | Manual updates run |
 | `/trigger/backfill` | Manual backfill run |
-| `/trigger/ai-backfill` | Run AI analysis on pending stories |
-| `/api/similar/:id` | Find semantically similar posts |
-| `/api/compute-topic-similarity` | Recompute topic similarity matrix |
-
-Protected endpoints require: `Authorization: Bearer <TRIGGER_SECRET>`
+| `/trigger/ai-backfill` | Run AI analysis on up to 50 pending stories |
+| `/api/similar/:id` | Find semantically similar posts (`?limit=5`, max 10) |
+| `/api/compute-topic-similarity` | Recompute and cache topic similarity matrix |
 
 ## Frontend
 
-The frontend is embedded directly in the worker (no separate static files). Served from `src/frontend.ts`:
+The frontend is embedded directly in the worker (`src/frontend.ts`) - no separate static file hosting needed:
 
-- `/` - Archive browser with filtering, pagination, comment expansion
-- `/analytics` - Dashboard with posting patterns, author stats, AI breakdown, embedding coverage
+- `/` - Archive browser with filtering, pagination, comment thread expansion
+- `/analytics` - Dashboard with posting patterns, author stats, AI classification breakdown, embedding coverage visualization
 
 ## Tech Stack
 
-- **Cloudflare Workers** - serverless compute with cron triggers
-- **D1** - SQLite database for items, snapshots, and metrics
-- **Workers AI** - Llama 3.2 for topic/content classification, DistilBERT for sentiment
-- **Vectorize** - vector database for 768-dimensional embeddings (bge-base-en-v1.5)
-- **TypeScript** - type-safe codebase
+| Component | Technology | Purpose |
+|-----------|------------|----------|
+| **Compute** | Cloudflare Workers | Serverless with cron triggers |
+| **Database** | D1 (SQLite) | Items, snapshots, metrics, usage counters |
+| **AI - Topics** | `@cf/meta/llama-3.2-1b-instruct` | Topic & content type classification |
+| **AI - Sentiment** | `@cf/huggingface/distilbert-sst-2-int8` | Sentiment analysis (0-1 score) |
+| **AI - Embeddings** | `@cf/baai/bge-base-en-v1.5` | 768-dim vectors for similarity |
+| **Vector DB** | Vectorize | Similarity search index `hn-similar` |
+| **Language** | TypeScript | Type-safe with strict null checks |
+| **Testing** | Vitest + Miniflare | Unit tests with D1/AI/Vectorize mocks |
 
 ## Security
 
-The API has a few layers of protection:
+- **Rate limiting** - 100 requests/IP/minute on all endpoints. Returns 429 with `Retry-After: 60` header.
+- **Fail-closed auth** - Protected endpoints return 503 if `TRIGGER_SECRET` isn't configured, 401 if auth fails. Uses timing-safe comparison.
+- **CORS** - Allowlist: `https://hn-archiver.philippd.workers.dev`, `http://localhost:8787`. Non-GET from other origins rejected with 403.
+- **CSP headers** - HTML responses include `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`.
+- **Input validation** - Parameterized SQL everywhere, item IDs validated (1 to 100M range), allowlist-based sanitization.
 
-- **Rate limiting** - 100 requests per IP per minute on public endpoints. Returns 429 with Retry-After header.
-- **Auth** - Protected endpoints require `Authorization: Bearer <TRIGGER_SECRET>`. Uses timing-safe comparison. Returns 503 if secret isn't configured (fail-closed).
-- **CORS** - Only allows requests from the production domain and localhost. Non-GET requests from other origins get 403.
-- **CSP headers** - All HTML responses include Content-Security-Policy, X-Frame-Options DENY, etc.
-- **Input validation** - Parameterized SQL, allowlist-based HTML sanitization, integer validation on IDs.
+## Budget Limits
 
-## Budget Considerations
+Designed to stay within Cloudflare paid plan included amounts:
 
-The system is designed to stay within Cloudflare's paid plan included limits:
+| Resource | Limit | Tracking |
+|----------|-------|----------|
+| D1 reads | 500M/day (conservative) | `usage_counters` table |
+| Vectorize queries | 1,500/day | `vectorize_queries_YYYY-MM-DD` counter |
+| Stored vectors | 10,000 max | `embedding_backfill` limit check |
+| Embeddings per run | 50 | `EMBEDDING_BATCH_SIZE` constant |
 
-- D1: well under 25B reads/month
-- Vectorize: 1,500 queries/day limit, 10,000 stored vectors max
-- Embedding generation: 50 per backfill run
+Monitor usage at `/api/usage`. Warnings appear when approaching 80% of limits.
 
-Usage is tracked in the `usage_counters` table and exposed via `/api/usage`.
+## Development
+
+```bash
+npm run dev              # Local dev server at localhost:8787
+npm run test             # Run Vitest test suite
+npm run typecheck        # TypeScript compilation check
+npx wrangler tail        # Stream production logs
+
+# D1 queries
+npx wrangler d1 execute hn-archiver --local --command "SELECT COUNT(*) FROM items"
+npx wrangler d1 execute hn-archiver --remote --command "SELECT COUNT(*) FROM items"
+
+# Manual trigger
+curl -H "Authorization: Bearer $TRIGGER_SECRET" https://hn-archiver.philippd.workers.dev/trigger/backfill
+```
+
+## Database Schema
+
+Key tables in `schema.sql`:
+
+- `items` - All HN content with AI analysis columns (`ai_topic`, `ai_sentiment`, `ai_content_type`, `embedding_generated_at`)
+- `item_snapshots` - Time-series data with `snapshot_reason` (score_spike, front_page, sample, new_item)
+- `archiving_state` - Progress tracking (`max_item_id_seen`, `last_*_run` timestamps)
+- `worker_metrics` - Run history with durations and error counts
+- `usage_counters` - Budget tracking by day/month
+- `analytics_cache` - Cached expensive computations (topic similarity matrix)
 
 ## License
 

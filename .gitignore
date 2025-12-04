@@ -6,3 +6,5 @@ dist/
 .env
 .dev.vars
 wrangler.toml.backup
+.vscode/
+.idea/
