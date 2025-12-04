@@ -168,20 +168,40 @@ async function analyzeSentiment(
 ): Promise<number> {
   const response = await ai.run('@cf/huggingface/distilbert-sst-2-int8', {
     text: title,
-  }) as Array<{ label: string; score: number }>;
+  });
 
   // DistilBERT returns [{ label: "POSITIVE" | "NEGATIVE", score: number }]
+  // Validate response structure before using
   if (!Array.isArray(response) || response.length === 0) {
     return 0.5; // Neutral default
   }
 
-  const positive = response.find(r => r.label === 'POSITIVE');
-  const negative = response.find(r => r.label === 'NEGATIVE');
+  // Validate each result has expected structure
+  const validResults = response.filter(
+    (r): r is { label: string; score: number } =>
+      r != null &&
+      typeof r === 'object' &&
+      typeof r.label === 'string' &&
+      typeof r.score === 'number' &&
+      r.score >= 0 &&
+      r.score <= 1
+  );
+
+  if (validResults.length === 0) {
+    return 0.5; // Neutral default if no valid results
+  }
+
+  const positive = validResults.find(r => r.label === 'POSITIVE');
+  const negative = validResults.find(r => r.label === 'NEGATIVE');
 
   if (positive && negative) {
     // Return positive score as 0-1 value
     return positive.score;
   }
+  
+  // If only one sentiment found, use it
+  if (positive) return positive.score;
+  if (negative) return 1 - negative.score; // Invert negative to get positive scale
   
   return 0.5;
 }

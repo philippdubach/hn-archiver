@@ -82,7 +82,8 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
     
     console.log(`[Discovery] Processing ${newIds.length} new items`);
     
-    // Collect all new stories for AI analysis at the end
+    // Collect new stories for AI analysis at the end (bounded to prevent memory issues)
+    const MAX_STORIES_FOR_AI = 100; // Limit memory usage, AI will analyze up to 50 anyway
     const newStories: HNItem[] = [];
     
     // Step 4: Fetch and process items in batches
@@ -114,9 +115,12 @@ export async function runDiscovery(env: WorkerEnv): Promise<WorkerResult> {
           snapshotsCreated += batchResult.snapshots.length;
         }
         
-        // Collect new stories for AI analysis
-        const stories = items.filter(item => item.type === 'story' && item.title);
-        newStories.push(...stories);
+        // Collect new stories for AI analysis (bounded)
+        if (newStories.length < MAX_STORIES_FOR_AI) {
+          const stories = items.filter(item => item.type === 'story' && item.title);
+          const remaining = MAX_STORIES_FOR_AI - newStories.length;
+          newStories.push(...stories.slice(0, remaining));
+        }
         
         console.log(`[Discovery] Batch ${currentBatchNum}: Processed ${batchResult.processed}, changed ${batchResult.changed}, snapshots ${batchResult.snapshots.length}`);
         

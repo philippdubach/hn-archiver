@@ -458,14 +458,24 @@ export async function logError(
       .bind(now, workerType, error.message.slice(0, 500), errorDetails)
       .run();
     
-    // Also increment error counter
+    // Increment error counter, resetting if day has changed
+    const startOfToday = Math.floor(now / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000);
+    const errorState = await db
+      .prepare('SELECT value, updated_at FROM archiving_state WHERE key = ?')
+      .bind('errors_today')
+      .first<{ value: number; updated_at: number }>();
+    
+    // Reset if last update was before today
+    const shouldReset = !errorState || errorState.updated_at < startOfToday;
+    const newErrorCount = shouldReset ? 1 : errorState.value + 1;
+    
     await db
       .prepare(`
         UPDATE archiving_state
-        SET value = value + 1, updated_at = ?
+        SET value = ?, updated_at = ?
         WHERE key = 'errors_today'
       `)
-      .bind(now)
+      .bind(newErrorCount, now)
       .run();
   } catch (dbError) {
     // Don't throw - logging errors shouldn't break the worker

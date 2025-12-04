@@ -198,7 +198,10 @@ export default {
         const idStr = path.replace('/api/item/', '');
         const itemId = parseInt(idStr);
         
-        if (isNaN(itemId)) {
+        // Validate item ID is a reasonable number (positive, not exceeding HN's ID space)
+        // HN IDs are sequential integers, currently around 42 million as of 2024
+        const MAX_REASONABLE_ID = 100_000_000; // 100 million, plenty of headroom
+        if (isNaN(itemId) || itemId < 1 || itemId > MAX_REASONABLE_ID) {
           return new Response(JSON.stringify({ error: 'Invalid item ID' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json', ...corsHeaders },

@@ -11,6 +11,27 @@ import { retryWithBackoff, chunk, RateLimiter } from './utils';
 // Rate limiter: 50 requests per second (balanced - HN has no official limit)
 const rateLimiter = new RateLimiter(50, 50);
 
+// Fetch timeout in milliseconds (Workers have 30s limit, use 10s for individual requests)
+const FETCH_TIMEOUT_MS = 10000;
+
+/**
+ * Fetch with timeout using AbortController
+ */
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Fetch the current maximum item ID from HN
  * This is the highest item number that has been created
@@ -19,7 +40,7 @@ export async function fetchMaxItemId(): Promise<number> {
   return retryWithBackoff(async () => {
     await rateLimiter.waitForToken();
     
-    const response = await fetch(`${Config.HN_API_BASE}/maxitem.json`, {
+    const response = await fetchWithTimeout(`${Config.HN_API_BASE}/maxitem.json`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
@@ -46,7 +67,7 @@ export async function fetchItem(id: number): Promise<HNItem | null> {
   return retryWithBackoff(async () => {
     await rateLimiter.waitForToken();
     
-    const response = await fetch(`${Config.HN_API_BASE}/item/${id}.json`, {
+    const response = await fetchWithTimeout(`${Config.HN_API_BASE}/item/${id}.json`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
@@ -122,7 +143,7 @@ export async function fetchTopStories(): Promise<number[]> {
   return retryWithBackoff(async () => {
     await rateLimiter.waitForToken();
     
-    const response = await fetch(`${Config.HN_API_BASE}/topstories.json`, {
+    const response = await fetchWithTimeout(`${Config.HN_API_BASE}/topstories.json`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });
@@ -149,7 +170,7 @@ export async function fetchUpdates(): Promise<HNUpdates> {
   return retryWithBackoff(async () => {
     await rateLimiter.waitForToken();
     
-    const response = await fetch(`${Config.HN_API_BASE}/updates.json`, {
+    const response = await fetchWithTimeout(`${Config.HN_API_BASE}/updates.json`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
     });

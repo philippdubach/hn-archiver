@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS items (
     last_changed_at INTEGER NOT NULL,  -- Last time data actually changed
     update_count INTEGER NOT NULL DEFAULT 0,  -- For sampling strategy
     
+    -- AI analysis fields (nullable - populated asynchronously)
+    ai_topic TEXT,  -- Topic classification: programming, ai, startups, etc.
+    ai_content_type TEXT,  -- Content type: show-hn, ask-hn, news, tutorial, etc.
+    ai_sentiment REAL,  -- Sentiment score: 0 (negative) to 1 (positive)
+    ai_analyzed_at INTEGER,  -- When AI analysis was performed
+    
     -- Constraints (no foreign key constraint - we archive all items, not just referenced ones)
     CHECK (time > 0),
     CHECK (first_seen_at > 0),
@@ -72,6 +78,11 @@ CREATE INDEX IF NOT EXISTS idx_items_time
 CREATE INDEX IF NOT EXISTS idx_items_type_time 
     ON items(type, time DESC)
     WHERE type != 'comment';
+
+-- Index for AI backfill - efficiently find unanalyzed stories
+CREATE INDEX IF NOT EXISTS idx_items_ai_pending 
+    ON items(first_seen_at DESC)
+    WHERE type = 'story' AND ai_analyzed_at IS NULL AND deleted = 0;
 
 -- Selective snapshots for time-series analysis
 CREATE TABLE IF NOT EXISTS item_snapshots (
