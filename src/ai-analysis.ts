@@ -113,9 +113,25 @@ Reply with ONLY the category name, nothing else.`;
     prompt,
     max_tokens: 20,
     temperature: 0.1, // Low temperature for consistent classification
-  }) as { response: string };
+  });
 
-  const result = response.response?.toLowerCase().trim() || 'other';
+  // Validate response structure
+  if (!response || typeof response !== 'object') {
+    console.warn('[AI] Unexpected topic response type:', typeof response);
+    return 'other';
+  }
+  
+  const typedResponse = response as { response?: string };
+  if (typeof typedResponse.response !== 'string') {
+    console.warn('[AI] Invalid topic response format');
+    return 'other';
+  }
+
+  const result = typedResponse.response.toLowerCase().trim();
+  if (!result || result.length > 50) {
+    // Response too long or empty - likely malformed
+    return 'other';
+  }
   
   // Validate the response is a known topic
   const matchedTopic = TOPICS.find(t => result.includes(t.replace('-', ' ')) || result.includes(t));
@@ -156,9 +172,25 @@ Reply with ONLY the type name, nothing else.`;
     prompt,
     max_tokens: 15,
     temperature: 0.1,
-  }) as { response: string };
+  });
 
-  const result = response.response?.toLowerCase().trim() || 'other';
+  // Validate response structure
+  if (!response || typeof response !== 'object') {
+    console.warn('[AI] Unexpected content type response type:', typeof response);
+    return 'other';
+  }
+  
+  const typedResponse = response as { response?: string };
+  if (typeof typedResponse.response !== 'string') {
+    console.warn('[AI] Invalid content type response format');
+    return 'other';
+  }
+
+  const result = typedResponse.response.toLowerCase().trim();
+  if (!result || result.length > 30) {
+    // Response too long or empty - likely malformed
+    return 'other';
+  }
   
   // Validate the response
   const contentTypes = ['news', 'tutorial', 'opinion', 'research', 'launch', 'discussion', 'other'];

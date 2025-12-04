@@ -80,8 +80,10 @@ Protected endpoints require: `Authorization: Bearer <TRIGGER_SECRET>`
 
 ## Frontend
 
-- `index.html` - Archive browser with filtering, pagination, and comment expansion
-- `analytics.html` - Dashboard with posting patterns, author stats, AI analysis breakdown, and embedding coverage
+The frontend is embedded directly in the worker (no separate static files). Served from `src/frontend.ts`:
+
+- `/` - Archive browser with filtering, pagination, comment expansion
+- `/analytics` - Dashboard with posting patterns, author stats, AI breakdown, embedding coverage
 
 ## Tech Stack
 
@@ -90,6 +92,16 @@ Protected endpoints require: `Authorization: Bearer <TRIGGER_SECRET>`
 - **Workers AI** - Llama 3.2 for topic/content classification, DistilBERT for sentiment
 - **Vectorize** - vector database for 768-dimensional embeddings (bge-base-en-v1.5)
 - **TypeScript** - type-safe codebase
+
+## Security
+
+The API has a few layers of protection:
+
+- **Rate limiting** - 100 requests per IP per minute on public endpoints. Returns 429 with Retry-After header.
+- **Auth** - Protected endpoints require `Authorization: Bearer <TRIGGER_SECRET>`. Uses timing-safe comparison. Returns 503 if secret isn't configured (fail-closed).
+- **CORS** - Only allows requests from the production domain and localhost. Non-GET requests from other origins get 403.
+- **CSP headers** - All HTML responses include Content-Security-Policy, X-Frame-Options DENY, etc.
+- **Input validation** - Parameterized SQL, allowlist-based HTML sanitization, integer validation on IDs.
 
 ## Budget Considerations
 

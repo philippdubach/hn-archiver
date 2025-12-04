@@ -16,20 +16,18 @@ HackerNews archiver using Cloudflare Workers, D1, Workers AI, and Vectorize. Run
 
 ```
 src/
-  worker.ts           # HTTP routes and cron dispatcher
+  worker.ts           # HTTP routes, cron dispatcher, auth, rate limiting
   db.ts               # Database queries and usage tracking
   hn-api.ts           # HN API client with rate limiting
   ai-analysis.ts      # AI classification + embedding generation
+  frontend.ts         # Embedded HTML for index and analytics pages
   types.ts            # TypeScript types, config, and budget limits
-  utils.ts            # Helpers
+  utils.ts            # Helpers, timing-safe compare, CSP headers
   workers/
     discovery.ts      # New item discovery
     update-tracker.ts # Track item changes
     backfill.ts       # Refresh stale items + AI + embedding backfill
     embedding-backfill.ts  # Vector embedding generation
-frontend/
-  index.html          # Archive viewer
-  analytics.html      # Stats dashboard with embedding analytics
 schema.sql            # Database schema including analytics cache
 wrangler.toml         # Worker config with D1, AI, and Vectorize bindings
 .dev.vars             # Local secrets (gitignored)
@@ -37,9 +35,29 @@ wrangler.toml         # Worker config with D1, AI, and Vectorize bindings
 
 ## Security
 
-- `TRIGGER_SECRET` stored via `wrangler secret put` (never in code)
-- Protected endpoints: `/trigger/*`, `/api/similar/:id`, `/api/compute-topic-similarity`
-- Public endpoints are read-only
+Auth:
+- `TRIGGER_SECRET` via `wrangler secret put` (never in code)
+- Timing-safe comparison for auth tokens (no timing attacks)
+- Returns 503 when secret not configured (fail-closed)
+- Protected: `/trigger/*`, `/api/similar/:id`, `/api/compute-topic-similarity`
+
+Rate limiting:
+- 100 requests per IP per minute on public endpoints
+- Returns 429 with Retry-After header when exceeded
+- In-memory, resets on cold start
+
+CORS and headers:
+- Only allows production domain and localhost
+- Non-GET from unknown origins rejected (403)
+- CSP headers on HTML (script-src self unsafe-inline, frame-ancestors none)
+- X-Frame-Options DENY, X-Content-Type-Options nosniff
+
+Input handling:
+- Parameterized SQL queries everywhere
+- HTML sanitization uses allowlist (p, a, code, pre, i, b, em, strong, etc)
+- Item IDs validated as integers
+- AI responses validated before use
+- Error responses don't leak internals
 
 ## Conventions
 
@@ -74,9 +92,26 @@ npx wrangler secret put TRIGGER_SECRET  # Set admin secret
 - `/v0/updates.json` - Recently changed items/profiles
 - `/v0/topstories.json` - Front page IDs (up to 500)
 
-## Key API endpoints
+## API endpoints
 
-- `/api/embedding-analytics` - Coverage stats, topic clusters, cached similarity matrix
-- `/api/similar/:id` - Find semantically similar posts (protected)
-- `/api/compute-topic-similarity` - Recompute and cache topic similarity matrix (protected)
+Public:
+- `/`, `/analytics` - Embedded frontend pages
+- `/health` - Health check
+- `/stats` - Archive statistics
+- `/api/items` - Paginated items with filtering
+- `/api/item/:id` - Single item with snapshot history
+- `/api/metrics` - Worker run history
+- `/api/analytics` - Type distribution, top items
+- `/api/advanced-analytics` - Authors, domains, viral posts, time patterns
+- `/api/ai-analytics` - AI classification breakdown
+- `/api/ai-analytics-extended` - Full AI stats with topic/sentiment
+- `/api/embedding-analytics` - Coverage, topic clusters, similarity matrix
 - `/api/usage` - Budget monitoring
+
+Protected (need `Authorization: Bearer <secret>`):
+- `/trigger/discovery` - Manual discovery run
+- `/trigger/updates` - Manual updates run  
+- `/trigger/backfill` - Manual backfill run
+- `/trigger/ai-backfill` - Run AI analysis on pending stories
+- `/api/similar/:id` - Semantic similarity search
+- `/api/compute-topic-similarity` - Recompute similarity matrix

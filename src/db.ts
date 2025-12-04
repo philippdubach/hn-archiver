@@ -443,10 +443,13 @@ export async function logError(
   context?: Record<string, unknown>
 ): Promise<void> {
   const now = getCurrentTimestampMs();
+  // Note: Stack traces intentionally omitted from DB to prevent info leakage
+  // They are still logged to console for debugging via wrangler tail
   const errorDetails = JSON.stringify({
-    message: error.message,
-    stack: error.stack?.slice(0, 1000),
-    context,
+    message: error.message.slice(0, 500),
+    context: context ? Object.fromEntries(
+      Object.entries(context).map(([k, v]) => [k, String(v).slice(0, 200)])
+    ) : undefined,
   });
   
   try {
@@ -1820,37 +1823,43 @@ export async function setCachedAnalytics(
 /**
  * Get sample stories per topic for topic similarity computation
  * Returns up to N representative stories per topic (highest scored)
+ * Uses a single query with window function to avoid N+1 queries
  */
 export async function getSampleStoriesPerTopic(
   db: D1Database,
   samplesPerTopic: number = 3
 ): Promise<Map<string, Array<{ id: number; title: string }>>> {
   try {
-    // Get topics first
-    const topics = await db
+    // Use window function (ROW_NUMBER) to get top N per topic in a single query
+    // This avoids the N+1 query problem of fetching each topic separately
+    const stories = await db
       .prepare(`
-        SELECT DISTINCT ai_topic as topic
-        FROM items
-        WHERE ai_topic IS NOT NULL AND embedding_generated_at IS NOT NULL AND deleted = 0
-      `)
-      .all<{ topic: string }>();
-    
-    const result = new Map<string, Array<{ id: number; title: string }>>();
-    
-    // For each topic, get top N stories by score
-    for (const { topic } of topics.results || []) {
-      const stories = await db
-        .prepare(`
-          SELECT id, title
+        WITH ranked_stories AS (
+          SELECT 
+            id, 
+            title, 
+            ai_topic as topic,
+            ROW_NUMBER() OVER (PARTITION BY ai_topic ORDER BY score DESC) as rn
           FROM items
-          WHERE ai_topic = ? AND embedding_generated_at IS NOT NULL AND deleted = 0
-          ORDER BY score DESC
-          LIMIT ?
-        `)
-        .bind(topic, samplesPerTopic)
-        .all<{ id: number; title: string }>();
-      
-      result.set(topic, stories.results || []);
+          WHERE ai_topic IS NOT NULL 
+            AND embedding_generated_at IS NOT NULL 
+            AND deleted = 0
+            AND title IS NOT NULL
+        )
+        SELECT id, title, topic
+        FROM ranked_stories
+        WHERE rn <= ?
+        ORDER BY topic, rn
+      `)
+      .bind(samplesPerTopic)
+      .all<{ id: number; title: string; topic: string }>();
+    
+    // Group results by topic
+    const result = new Map<string, Array<{ id: number; title: string }>>();
+    for (const row of stories.results || []) {
+      const existing = result.get(row.topic) || [];
+      existing.push({ id: row.id, title: row.title });
+      result.set(row.topic, existing);
     }
     
     return result;

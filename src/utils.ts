@@ -7,6 +7,41 @@ import type { DBItem, EnrichedHNItem } from './types';
 import { Config } from './types';
 
 /**
+ * Timing-safe string comparison to prevent timing attacks on secrets
+ * Uses constant-time comparison regardless of where strings differ
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    // Still do the comparison to maintain constant time
+    // but result will be false
+    let result = 1; // Will be non-zero (false)
+    const longer = a.length > b.length ? a : b;
+    for (let i = 0; i < longer.length; i++) {
+      result |= (a.charCodeAt(i % a.length) || 0) ^ (b.charCodeAt(i % b.length) || 0);
+    }
+    return false;
+  }
+  
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
+ * Get Content Security Policy headers for HTML responses
+ */
+export function getCSPHeaders(): Record<string, string> {
+  return {
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'",
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+  };
+}
+
+/**
  * Split an array into chunks of specified size
  * Used for batch processing to stay within Worker limits
  */

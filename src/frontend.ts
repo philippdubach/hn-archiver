@@ -1,4 +1,648 @@
-<!DOCTYPE html>
+/**
+ * Frontend HTML files embedded as strings
+ * Served directly from the Worker for same-origin requests
+ */
+
+export const INDEX_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HN Archive Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      background: #f6f6ef; 
+      color: #333; 
+      line-height: 1.5; 
+    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    header { 
+      background: #ff6600; 
+      color: white; 
+      padding: 15px 20px; 
+      margin-bottom: 20px; 
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 1.5rem; }
+    nav a { 
+      color: white; 
+      margin-left: 20px; 
+      text-decoration: none; 
+      padding: 8px 16px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+    nav a:hover { background: rgba(255,255,255,0.2); }
+    nav a.active { background: rgba(255,255,255,0.3); }
+    .stats-bar { 
+      background: white; 
+      padding: 20px; 
+      border-radius: 8px; 
+      margin-bottom: 20px; 
+      display: flex; 
+      gap: 40px; 
+      flex-wrap: wrap; 
+      align-items: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+    }
+    .stat { text-align: center; }
+    .stat-value { font-size: 2rem; font-weight: bold; color: #ff6600; }
+    .stat-value.small { font-size: 1rem; }
+    .stat-label { font-size: 0.85rem; color: #666; margin-top: 4px; }
+    .refresh-btn {
+      margin-left: auto;
+      padding: 8px 16px;
+      background: #ff6600;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .refresh-btn:hover { background: #e55a00; }
+    .refresh-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .refresh-btn.spinning .refresh-icon { animation: spin 1s linear infinite; }
+    .refresh-icon { display: inline-block; }
+    .filters { 
+      background: white; 
+      padding: 15px 20px; 
+      border-radius: 8px; 
+      margin-bottom: 20px; 
+      display: flex; 
+      gap: 20px; 
+      flex-wrap: wrap; 
+      align-items: center; 
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+    }
+    .filter-group { display: flex; align-items: center; gap: 8px; }
+    .filter-group label { font-size: 0.9rem; color: #666; }
+    select, button { 
+      padding: 8px 15px; 
+      border: 1px solid #ddd; 
+      border-radius: 4px; 
+      font-size: 0.9rem; 
+      background: white;
+    }
+    select:focus { outline: none; border-color: #ff6600; }
+    button { 
+      background: #ff6600; 
+      color: white; 
+      border: none; 
+      cursor: pointer; 
+      font-weight: 500;
+    }
+    button:hover { background: #e55a00; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .items { 
+      background: white; 
+      border-radius: 8px; 
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); 
+      overflow: hidden;
+    }
+    .item { 
+      padding: 15px 20px; 
+      border-bottom: 1px solid #eee; 
+      display: flex; 
+      gap: 15px; 
+      transition: background 0.2s;
+    }
+    .item:hover { background: #fafafa; }
+    .item:last-child { border-bottom: none; }
+    .item.deleted { opacity: 0.5; }
+    .item.dead { opacity: 0.5; background: #fff5f5; }
+    .item-rank { 
+      color: #999; 
+      min-width: 35px; 
+      font-weight: 500;
+      padding-top: 2px;
+    }
+    .item-content { flex: 1; }
+    .item-title { font-size: 1rem; margin-bottom: 4px; }
+    .item-title a { color: #333; text-decoration: none; }
+    .item-title a:hover { color: #ff6600; }
+    .item-title .domain { 
+      font-size: 0.8rem; 
+      color: #999; 
+      margin-left: 8px;
+    }
+    .item-meta { font-size: 0.8rem; color: #666; }
+    .item-meta a { color: #666; text-decoration: none; }
+    .item-meta a:hover { text-decoration: underline; }
+    .item-meta .tag { 
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 0.7rem;
+      margin-left: 8px;
+    }
+    .item-meta .tag.deleted { background: #fee; color: #c00; }
+    .item-meta .tag.dead { background: #fee; color: #c00; }
+    .item-meta .tag.type { background: #e8f4ff; color: #0066cc; }
+    .item-score { 
+      min-width: 70px; 
+      text-align: right; 
+      color: #ff6600; 
+      font-weight: bold;
+      font-size: 0.95rem;
+    }
+    .comment-toggle {
+      background: none;
+      border: none;
+      color: #0066cc;
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0;
+      margin-left: 8px;
+    }
+    .comment-toggle:hover { text-decoration: underline; }
+    .comments-container {
+      margin-top: 10px;
+      margin-left: 20px;
+      padding-left: 15px;
+      border-left: 2px solid #eee;
+    }
+    .comment {
+      padding: 10px 0;
+      border-bottom: 1px solid #f5f5f5;
+    }
+    .comment:last-child { border-bottom: none; }
+    .comment-header { font-size: 0.8rem; color: #666; margin-bottom: 5px; }
+    .comment-header .author { color: #ff6600; font-weight: 500; }
+    .comment-text { font-size: 0.9rem; color: #444; }
+    .comment-text a { color: #0066cc; }
+    .comments-loading { font-size: 0.8rem; color: #999; padding: 10px 0; }
+    .pagination { 
+      display: flex; 
+      justify-content: center; 
+      align-items: center;
+      gap: 15px; 
+      margin-top: 20px; 
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .pagination span { color: #666; font-size: 0.9rem; }
+    .status { 
+      padding: 4px 10px; 
+      border-radius: 4px; 
+      font-size: 0.8rem; 
+      font-weight: 500;
+    }
+    .status.healthy { background: #d4edda; color: #155724; }
+    .status.degraded { background: #fff3cd; color: #856404; }
+    .status.unhealthy { background: #f8d7da; color: #721c24; }
+    .loading { 
+      text-align: center; 
+      padding: 60px 20px; 
+      color: #666; 
+    }
+    .loading::after {
+      content: '';
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #ff6600;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { 
+      text-align: center; 
+      padding: 60px 20px; 
+      color: #999; 
+    }
+    .error-msg {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 15px 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HN Archive</h1>
+    <nav>
+      <a href="/" class="active">Archive</a>
+      <a href="/analytics">Analytics</a>
+    </nav>
+  </header>
+  
+  <div class="container">
+    <div class="stats-bar" id="stats">
+      <div class="loading">Loading stats</div>
+    </div>
+    
+    <div class="filters">
+      <div class="filter-group">
+        <label for="typeFilter">Type:</label>
+        <select id="typeFilter" onchange="resetAndLoad()">
+          <option value="">All Posts</option>
+          <option value="story">Stories</option>
+          <option value="job">Jobs</option>
+          <option value="poll">Polls</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="timeFilter">Time:</label>
+        <select id="timeFilter" onchange="resetAndLoad()">
+          <option value="">All Time</option>
+          <option value="today">Today</option>
+          <option value="24h">Last 24 Hours</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="sortOrder">Sort:</label>
+        <select id="sortOrder" onchange="resetAndLoad()">
+          <option value="time-desc">Newest First</option>
+          <option value="time-asc">Oldest First</option>
+          <option value="score-desc">Points (High to Low)</option>
+          <option value="score-asc">Points (Low to High)</option>
+          <option value="descendants-desc">Comments (Most)</option>
+          <option value="descendants-asc">Comments (Least)</option>
+        </select>
+      </div>
+    </div>
+    
+    <div class="items" id="items">
+      <div class="loading">Loading items</div>
+    </div>
+    
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <script>
+    const API_BASE = '';
+    let currentPage = 0;
+    const pageSize = 50;
+    let totalItems = 0;
+    const commentsCache = new Map();
+    const CACHE_MAX_SIZE = 50;
+
+    function addToCache(key, value) {
+      if (commentsCache.size >= CACHE_MAX_SIZE) {
+        const firstKey = commentsCache.keys().next().value;
+        commentsCache.delete(firstKey);
+      }
+      commentsCache.set(key, value);
+    }
+
+    async function loadStats() {
+      try {
+        const [health, stats, analytics] = await Promise.all([
+          fetch(\`\${API_BASE}/health\`).then(r => r.json()),
+          fetch(\`\${API_BASE}/stats\`).then(r => r.json()),
+          fetch(\`\${API_BASE}/api/analytics\`).then(r => r.ok ? r.json() : null).catch(() => null)
+        ]);
+        
+        const lastUpdate = health.last_run?.discovery || stats.last_discovery;
+        const lastUpdateStr = lastUpdate ? formatDateTime(lastUpdate) : 'Never';
+        
+        const typeMap = {};
+        (analytics?.typeDistribution || []).forEach(t => { typeMap[t.type] = t.count; });
+        const postCount = (typeMap.story || 0) + (typeMap.job || 0) + (typeMap.poll || 0);
+        const commentCount = typeMap.comment || 0;
+        
+        document.getElementById('stats').innerHTML = \`
+          <div class="stat">
+            <div class="stat-value">\${postCount.toLocaleString()}</div>
+            <div class="stat-label">Posts</div>
+            <div class="stat-sub" style="font-size: 0.75rem; color: #999;">(\${commentCount.toLocaleString()} comments)</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">\${(stats.items_today || 0).toLocaleString()}</div>
+            <div class="stat-label">Added Today</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value">\${(stats.snapshots_today || 0).toLocaleString()}</div>
+            <div class="stat-label">Snapshots Today</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value small">\${lastUpdateStr}</div>
+            <div class="stat-label">Last Update</div>
+          </div>
+          <div class="stat">
+            <span class="status \${health.status}">\${health.status.toUpperCase()}</span>
+            <div class="stat-label">System Status</div>
+          </div>
+          <button class="refresh-btn" onclick="refreshAll()" id="refreshBtn">
+            <span class="refresh-icon">&#x21bb;</span> Refresh
+          </button>
+        \`;
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+        document.getElementById('stats').innerHTML = \`
+          <div class="error-msg">Failed to connect to API. Make sure the worker is deployed.</div>
+        \`;
+      }
+    }
+
+    async function refreshAll() {
+      const btn = document.getElementById('refreshBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('spinning');
+      }
+      commentsCache.clear();
+      try {
+        await Promise.all([loadStats(), loadItems()]);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('spinning');
+        }
+      }
+    }
+
+    function resetAndLoad() {
+      currentPage = 0;
+      loadItems();
+    }
+
+    async function loadItems() {
+      const type = document.getElementById('typeFilter').value;
+      const timeFilter = document.getElementById('timeFilter').value;
+      const sortOrderValue = document.getElementById('sortOrder').value;
+      const [orderBy, order] = sortOrderValue.split('-');
+      
+      const params = new URLSearchParams({
+        limit: pageSize.toString(),
+        offset: (currentPage * pageSize).toString(),
+        orderBy,
+        order
+      });
+      if (type) params.set('type', type);
+      
+      if (timeFilter === 'today') {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        params.set('since', Math.floor(startOfDay.getTime() / 1000).toString());
+      } else if (timeFilter === '24h') {
+        const since = Math.floor(Date.now() / 1000) - 86400;
+        params.set('since', since.toString());
+      }
+      
+      try {
+        document.getElementById('items').innerHTML = '<div class="loading">Loading items</div>';
+        document.getElementById('pagination').innerHTML = '';
+        
+        const response = await fetch(\`\${API_BASE}/api/items?\${params}\`);
+        if (!response.ok) throw new Error('API request failed');
+        
+        const data = await response.json();
+        totalItems = data.total || 0;
+        
+        if (!data.items?.length) {
+          document.getElementById('items').innerHTML = '<div class="empty">No items found</div>';
+          return;
+        }
+        
+        document.getElementById('items').innerHTML = data.items.map((item, i) => {
+          const rank = currentPage * pageSize + i + 1;
+          const title = item.title || (item.type === 'comment' ? 'Comment' : \`[\${item.type}]\`);
+          const domain = item.url ? getDomain(item.url) : null;
+          const hasComments = item.type === 'story' && (item.descendants || 0) > 0;
+          
+          return \`
+            <div class="item \${item.deleted ? 'deleted' : ''} \${item.dead ? 'dead' : ''}" data-id="\${item.id}">
+              <div class="item-rank">\${rank}.</div>
+              <div class="item-content">
+                <div class="item-title">
+                  \${item.url 
+                    ? \`<a href="\${escapeHtml(item.url)}" target="_blank" rel="noopener">\${escapeHtml(title)}</a>\`
+                    : \`<a href="https://news.ycombinator.com/item?id=\${item.id}" target="_blank" rel="noopener">\${escapeHtml(title)}</a>\`
+                  }
+                  \${domain ? \`<span class="domain">(\${domain})</span>\` : ''}
+                </div>
+                <div class="item-meta">
+                  \${item.score || 0} points by \${escapeHtml(item.by) || 'unknown'} | 
+                  \${formatTime(item.time)} | 
+                  <a href="https://news.ycombinator.com/item?id=\${item.id}" target="_blank" rel="noopener">\${item.descendants || 0} comments</a>
+                  \${hasComments ? \`<button class="comment-toggle" onclick="toggleComments(\${item.id}, this)">[show]</button>\` : ''}
+                  <span class="tag type">\${item.type}</span>
+                  \${item.deleted ? '<span class="tag deleted">deleted</span>' : ''}
+                  \${item.dead ? '<span class="tag dead">dead</span>' : ''}
+                </div>
+                <div class="comments-container" id="comments-\${item.id}" style="display: none;"></div>
+              </div>
+              <div class="item-score">\${item.score || 0} pts</div>
+            </div>
+          \`;
+        }).join('');
+        
+        renderPagination();
+        
+      } catch (e) {
+        console.error('Failed to load items:', e);
+        document.getElementById('items').innerHTML = \`
+          <div class="empty">
+            Failed to load items.<br><br>
+            <small>Make sure the /api/items endpoint is added to your worker.</small>
+          </div>
+        \`;
+      }
+    }
+
+    async function toggleComments(itemId, btn) {
+      const container = document.getElementById(\`comments-\${itemId}\`);
+      if (!container) return;
+      
+      const isVisible = container.style.display !== 'none';
+      if (isVisible) {
+        container.style.display = 'none';
+        btn.textContent = '[show]';
+        return;
+      }
+      
+      container.style.display = 'block';
+      btn.textContent = '[hide]';
+      
+      if (commentsCache.has(itemId)) {
+        renderComments(container, commentsCache.get(itemId));
+        return;
+      }
+      
+      container.innerHTML = '<div class="comments-loading">Loading comments...</div>';
+      
+      try {
+        const response = await fetch(\`\${API_BASE}/api/item/\${itemId}\`);
+        if (!response.ok) throw new Error('Failed to fetch item');
+        
+        const data = await response.json();
+        const kids = data.item?.kids ? JSON.parse(data.item.kids) : [];
+        
+        if (kids.length === 0) {
+          container.innerHTML = '<div class="comments-loading">No comments archived yet</div>';
+          return;
+        }
+        
+        const commentIds = kids.slice(0, 10);
+        const comments = await Promise.all(
+          commentIds.map(id => 
+            fetch(\`\${API_BASE}/api/item/\${id}\`)
+              .then(r => r.ok ? r.json() : null)
+              .catch(() => null)
+          )
+        );
+        
+        const validComments = comments.filter(c => c?.item).map(c => c.item);
+        addToCache(itemId, { comments: validComments, hasMore: kids.length > 10 });
+        renderComments(container, commentsCache.get(itemId));
+      } catch (e) {
+        console.error('Failed to load comments:', e);
+        container.innerHTML = '<div class="comments-loading">Failed to load comments</div>';
+      }
+    }
+
+    function renderComments(container, data) {
+      const { comments, hasMore } = data;
+      if (!comments || !comments.length) {
+        container.innerHTML = '<div class="comments-loading">No comments archived yet</div>';
+        return;
+      }
+      container.innerHTML = comments.map(c => \`
+        <div class="comment">
+          <div class="comment-header">
+            <span class="author">\${escapeHtml(c.by) || 'unknown'}</span> | \${formatTime(c.time)}
+          </div>
+          <div class="comment-text">\${sanitizeHtml(c.text) || '<em>[no text]</em>'}</div>
+        </div>
+      \`).join('') + (hasMore ? '<div class="comments-loading">... and more on HN</div>' : '');
+    }
+
+    function sanitizeHtml(html) {
+      if (!html) return '';
+      // Allowlist-based sanitization - only permit safe tags and attributes
+      const allowedTags = new Set(['p', 'a', 'i', 'b', 'em', 'strong', 'code', 'pre', 'br', 'ul', 'ol', 'li', 'blockquote']);
+      const allowedAttrs = new Set(['href', 'title']); // Only allow safe attributes
+      const temp = document.createElement('div');
+      temp.innerHTML = html;
+      
+      // Remove all non-allowed elements (script, svg, iframe, object, embed, form, etc.)
+      const allElements = temp.querySelectorAll('*');
+      for (const el of allElements) {
+        const tagName = el.tagName.toLowerCase();
+        if (!allowedTags.has(tagName)) {
+          // Replace with text content to preserve readable text
+          const text = document.createTextNode(el.textContent || '');
+          el.parentNode?.replaceChild(text, el);
+        }
+      }
+      
+      // Process remaining elements - strip non-allowed attributes
+      temp.querySelectorAll('*').forEach(el => {
+        const attrsToRemove = [];
+        for (const attr of el.attributes) {
+          const attrName = attr.name.toLowerCase();
+          // Only allow specific safe attributes
+          if (!allowedAttrs.has(attrName)) {
+            attrsToRemove.push(attr.name);
+          } else if (attrName === 'href') {
+            // Validate href - only allow http(s) and relative URLs
+            const hrefVal = attr.value.toLowerCase().trim();
+            if (hrefVal.startsWith('javascript:') || hrefVal.startsWith('data:') || 
+                hrefVal.startsWith('vbscript:') || hrefVal.startsWith('file:')) {
+              attrsToRemove.push(attr.name);
+            }
+          }
+        }
+        attrsToRemove.forEach(a => el.removeAttribute(a));
+        
+        // Add rel="noopener noreferrer" to links for security
+        if (el.tagName.toLowerCase() === 'a') {
+          el.setAttribute('rel', 'noopener noreferrer');
+          el.setAttribute('target', '_blank');
+        }
+      });
+      
+      return temp.innerHTML;
+    }
+
+    function renderPagination() {
+      const totalPages = Math.ceil(totalItems / pageSize);
+      if (totalPages <= 1) {
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+      
+      document.getElementById('pagination').innerHTML = \`
+        <button \${currentPage === 0 ? 'disabled' : ''} onclick="changePage(\${currentPage - 1})">Previous</button>
+        <span>Page \${currentPage + 1} of \${totalPages} (\${totalItems.toLocaleString()} items)</span>
+        <button \${currentPage >= totalPages - 1 ? 'disabled' : ''} onclick="changePage(\${currentPage + 1})">Next</button>
+      \`;
+    }
+
+    function changePage(page) {
+      currentPage = page;
+      loadItems();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function getDomain(url) {
+      try { 
+        return new URL(url).hostname.replace('www.', ''); 
+      } catch { 
+        return null; 
+      }
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return 'unknown';
+      const date = new Date(timestamp * 1000);
+      const now = new Date();
+      const diff = (now - date) / 1000;
+      
+      const actualTime = date.toLocaleString(undefined, {
+        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+      });
+      
+      let relative;
+      if (diff < 60) relative = 'just now';
+      else if (diff < 3600) relative = Math.floor(diff / 60) + ' minutes ago';
+      else if (diff < 86400) relative = Math.floor(diff / 3600) + ' hours ago';
+      else if (diff < 604800) relative = Math.floor(diff / 86400) + ' days ago';
+      else relative = date.toLocaleDateString();
+      
+      return \`\${relative} (\${actualTime})\`;
+    }
+
+    function formatDateTime(timestamp) {
+      if (!timestamp) return 'Never';
+      const ts = timestamp > 1e12 ? timestamp : timestamp * 1000;
+      const date = new Date(ts);
+      return date.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    loadStats();
+    loadItems();
+  </script>
+</body>
+</html>`;
+
+// Analytics HTML - simplified version that uses same-origin API calls
+export const ANALYTICS_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -528,8 +1172,8 @@
   <header>
     <h1>HN Archive Analytics</h1>
     <nav>
-      <a href="index.html">Archive</a>
-      <a href="analytics.html" class="active">Analytics</a>
+      <a href="/">Archive</a>
+      <a href="/analytics" class="active">Analytics</a>
     </nav>
   </header>
   
@@ -740,7 +1384,7 @@
   </div>
 
   <script>
-    const API_BASE = 'https://hn-archiver.philippd.workers.dev';
+    const API_BASE = '';
     let analyticsData = {};
     let topItemsData = { score: [], descendants: [] };
     let authorData = { volume: [], success: [] };
@@ -748,7 +1392,7 @@
     
     // Helper to format labels (e.g., 'artificial-intelligence' -> 'Artificial Intelligence')
     function formatLabel(str) {
-      return str.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      return str.replace(/-/g, ' ').replace(/\\b\\w/g, l => l.toUpperCase());
     }
     
     // Topic color mapping
@@ -783,9 +1427,9 @@
     async function loadOverview() {
       try {
         const [health, stats, advanced] = await Promise.all([
-          fetch(`${API_BASE}/health`).then(r => r.json()),
-          fetch(`${API_BASE}/stats`).then(r => r.json()),
-          fetch(`${API_BASE}/api/advanced-analytics`).then(r => r.ok ? r.json() : null).catch(() => null)
+          fetch(\`\${API_BASE}/health\`).then(r => r.json()),
+          fetch(\`\${API_BASE}/stats\`).then(r => r.json()),
+          fetch(\`\${API_BASE}/api/advanced-analytics\`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
         
         const detailed = advanced?.detailedStats || {};
@@ -793,38 +1437,38 @@
           ? Math.max(1, Math.floor((Date.now() / 1000 - detailed.oldest_item_time) / 86400))
           : 1;
         
-        document.getElementById('overview').innerHTML = `
+        document.getElementById('overview').innerHTML = \`
           <div class="stat">
-            <div class="stat-value">${(stats.total_items || 0).toLocaleString()}</div>
+            <div class="stat-value">\${(stats.total_items || 0).toLocaleString()}</div>
             <div class="stat-label">Total Items</div>
-            <div class="stat-sub">${(stats.items_today || 0).toLocaleString()} today</div>
+            <div class="stat-sub">\${(stats.items_today || 0).toLocaleString()} today</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${(detailed.total_stories || 0).toLocaleString()}</div>
+            <div class="stat-value">\${(detailed.total_stories || 0).toLocaleString()}</div>
             <div class="stat-label">Stories</div>
-            <div class="stat-sub">${detailed.avg_story_score || 0} avg score</div>
+            <div class="stat-sub">\${detailed.avg_story_score || 0} avg score</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${(detailed.total_comments || 0).toLocaleString()}</div>
+            <div class="stat-value">\${(detailed.total_comments || 0).toLocaleString()}</div>
             <div class="stat-label">Comments</div>
-            <div class="stat-sub">${detailed.avg_comments_per_story || 0} avg/story</div>
+            <div class="stat-sub">\${detailed.avg_comments_per_story || 0} avg/story</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${(detailed.total_authors || 0).toLocaleString()}</div>
+            <div class="stat-value">\${(detailed.total_authors || 0).toLocaleString()}</div>
             <div class="stat-label">Authors</div>
             <div class="stat-sub">unique posters</div>
           </div>
           <div class="stat">
-            <div class="stat-value">${trackingDays}</div>
+            <div class="stat-value">\${trackingDays}</div>
             <div class="stat-label">Days Tracked</div>
-            <div class="stat-sub">${detailed.total_snapshots || 0} snapshots</div>
+            <div class="stat-sub">\${detailed.total_snapshots || 0} snapshots</div>
           </div>
           <div class="stat">
-            <span class="status ${health.status}">${health.status.toUpperCase()}</span>
+            <span class="status \${health.status}">\${health.status.toUpperCase()}</span>
             <div class="stat-label">System Health</div>
-            <div class="stat-sub">${formatDateTime(health.last_run?.discovery)}</div>
+            <div class="stat-sub">\${formatDateTime(health.last_run?.discovery)}</div>
           </div>
-        `;
+        \`;
         
         analyticsData.detailed = detailed;
       } catch (e) {
@@ -835,7 +1479,7 @@
 
     async function loadBasicAnalytics() {
       try {
-        const response = await fetch(`${API_BASE}/api/analytics`);
+        const response = await fetch(\`\${API_BASE}/api/analytics\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -847,14 +1491,14 @@
           document.getElementById('typeChart').innerHTML = typeData.map(t => {
             const width = maxCount > 0 ? ((t.count / maxCount) * 100) : 0;
             const colors = { story: '', comment: 'blue', job: 'green', poll: 'purple' };
-            return `
+            return \`
               <div class="bar-row">
-                <span class="bar-label">${t.type || 'unknown'}</span>
+                <span class="bar-label">\${t.type || 'unknown'}</span>
                 <div class="bar-container">
-                  <div class="bar ${colors[t.type] || ''}" style="width: ${width}%">${t.count?.toLocaleString()}</div>
+                  <div class="bar \${colors[t.type] || ''}" style="width: \${width}%">\${t.count?.toLocaleString()}</div>
                 </div>
               </div>
-            `;
+            \`;
           }).join('');
         }
         
@@ -870,7 +1514,7 @@
 
     async function loadAdvancedAnalytics() {
       try {
-        const response = await fetch(`${API_BASE}/api/advanced-analytics`);
+        const response = await fetch(\`\${API_BASE}/api/advanced-analytics\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -902,7 +1546,7 @@
 
     async function loadAIAnalytics() {
       try {
-        const response = await fetch(`${API_BASE}/api/ai-analytics-extended`);
+        const response = await fetch(\`\${API_BASE}/api/ai-analytics-extended\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -942,19 +1586,19 @@
       const pending = data.total_pending || 0;
       const pct = total + pending > 0 ? Math.round((total / (total + pending)) * 100) : 0;
       
-      document.getElementById('aiCoverage').innerHTML = `
-        <span class="count">${total.toLocaleString()}</span> analyzed (${pct}%)
-      `;
+      document.getElementById('aiCoverage').innerHTML = \`
+        <span class="count">\${total.toLocaleString()}</span> analyzed (\${pct}%)
+      \`;
     }
     
     function renderTopicChart(topics) {
       if (!topics.length) {
-        document.getElementById('topicChart').innerHTML = `
+        document.getElementById('topicChart').innerHTML = \`
           <div class="empty-ai">
             <div class="icon">🤖</div>
             <p>No AI topic data yet.</p>
           </div>
-        `;
+        \`;
         document.getElementById('topicInsight').innerHTML = '';
         return;
       }
@@ -966,24 +1610,24 @@
         const width = maxCount > 0 ? (t.count / maxCount) * 100 : 0;
         const color = TOPIC_COLORS[t.topic] || TOPIC_COLORS.other;
         const label = formatLabel(t.topic);
-        return `
+        return \`
           <div class="topic-bar">
-            <span class="label">${label}</span>
+            <span class="label">\${label}</span>
             <div class="bar-bg">
-              <div class="bar-fill" style="width: ${width}%; background: ${color}">${t.count}</div>
+              <div class="bar-fill" style="width: \${width}%; background: \${color}">\${t.count}</div>
             </div>
-            <span class="stats">${t.avg_score} avg</span>
+            <span class="stats">\${t.avg_score} avg</span>
           </div>
-        `;
+        \`;
       }).join('');
       
       const bestLabel = formatLabel(bestTopic.topic);
-      document.getElementById('topicInsight').innerHTML = `
+      document.getElementById('topicInsight').innerHTML = \`
         <div class="insight-box">
           <h3>Best Performing Topic</h3>
-          <p><span class="highlight">${bestLabel}</span> posts have the highest average score (<span class="highlight">${bestTopic.avg_score}</span> points)</p>
+          <p><span class="highlight">\${bestLabel}</span> posts have the highest average score (<span class="highlight">\${bestTopic.avg_score}</span> points)</p>
         </div>
-      `;
+      \`;
     }
     
     function renderContentTypeChart(contentTypes) {
@@ -1008,34 +1652,34 @@
         'other': '#7f8c8d'
       };
       
-      document.getElementById('contentTypeChart').innerHTML = `
+      document.getElementById('contentTypeChart').innerHTML = \`
         <div class="bar-chart">
-          ${contentTypes.map(c => {
+          \${contentTypes.map(c => {
             const width = maxAvg > 0 ? ((c.avg_score || 0) / maxAvg) * 100 : 0;
             const color = colors[c.content_type] || colors.other;
             const label = formatLabel(c.content_type);
-            return `
+            return \`
               <div class="bar-row">
-                <span class="bar-label" style="min-width: 90px">${label}</span>
+                <span class="bar-label" style="min-width: 90px">\${label}</span>
                 <div class="bar-container">
-                  <div class="bar" style="width: ${Math.max(width, 5)}%; background: ${color}">${c.avg_score}</div>
+                  <div class="bar" style="width: \${Math.max(width, 5)}%; background: \${color}">\${c.avg_score}</div>
                 </div>
-                <span style="min-width: 50px; text-align: right; color: #999; font-size: 0.75rem">${c.count} posts</span>
+                <span style="min-width: 50px; text-align: right; color: #999; font-size: 0.75rem">\${c.count} posts</span>
               </div>
-            `;
+            \`;
           }).join('')}
         </div>
-      `;
+      \`;
       
       const best = contentTypes[0];
       if (best) {
         const bestLabel = formatLabel(best.content_type);
-        document.getElementById('contentTypeInsight').innerHTML = `
+        document.getElementById('contentTypeInsight').innerHTML = \`
           <div class="insight-box">
             <h3>Top Content Type</h3>
-            <p><span class="highlight">${bestLabel}</span> posts average <span class="highlight">${best.avg_score}</span> points with ${best.avg_comments} comments</p>
+            <p><span class="highlight">\${bestLabel}</span> posts average <span class="highlight">\${best.avg_score}</span> points with \${best.avg_comments} comments</p>
           </div>
-        `;
+        \`;
       }
     }
     
@@ -1069,27 +1713,27 @@
       const sentimentLabel = avgSentiment < 0.4 ? 'Negative' : 
                             avgSentiment < 0.6 ? 'Neutral' : 'Positive';
       
-      document.getElementById('sentimentChart').innerHTML = `
+      document.getElementById('sentimentChart').innerHTML = \`
         <div class="sentiment-avg">
           <div class="sentiment-gauge">
-            <span class="value">${(avgSentiment * 100).toFixed(0)}%</span>
+            <span class="value">\${(avgSentiment * 100).toFixed(0)}%</span>
           </div>
           <div class="sentiment-gauge-label">
-            <p>Average sentiment: <span class="highlight">${sentimentLabel}</span></p>
-            <p style="font-size: 0.75rem; color: #999">Based on ${total.toLocaleString()} analyzed stories</p>
+            <p>Average sentiment: <span class="highlight">\${sentimentLabel}</span></p>
+            <p style="font-size: 0.75rem; color: #999">Based on \${total.toLocaleString()} analyzed stories</p>
           </div>
         </div>
         
         <div class="sentiment-bar-container">
-          ${distribution.map(d => {
+          \${distribution.map(d => {
             const pct = total > 0 ? (d.count / total) * 100 : 0;
-            return `
-              <div class="sentiment-bar-segment ${bucketClasses[d.bucket] || 'neutral'}" 
-                   style="flex: ${pct}" 
-                   title="${bucketLabels[d.bucket] || d.bucket}: ${d.count} (${pct.toFixed(1)}%)">
-                ${pct > 8 ? d.count : ''}
+            return \`
+              <div class="sentiment-bar-segment \${bucketClasses[d.bucket] || 'neutral'}" 
+                   style="flex: \${pct}" 
+                   title="\${bucketLabels[d.bucket] || d.bucket}: \${d.count} (\${pct.toFixed(1)}%)">
+                \${pct > 8 ? d.count : ''}
               </div>
-            `;
+            \`;
           }).join('')}
         </div>
         
@@ -1098,17 +1742,17 @@
           <span>😐 Neutral</span>
           <span>😊 Positive</span>
         </div>
-      `;
+      \`;
       
       // Find which sentiment performs best
       const bestBucket = distribution.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, distribution[0]);
       if (bestBucket) {
-        document.getElementById('sentimentInsight').innerHTML = `
+        document.getElementById('sentimentInsight').innerHTML = \`
           <div class="insight-box">
             <h3>Sentiment & Performance</h3>
-            <p><span class="highlight">${bucketLabels[bestBucket.bucket] || bestBucket.bucket}</span> posts perform best with <span class="highlight">${bestBucket.avg_score}</span> avg points</p>
+            <p><span class="highlight">\${bucketLabels[bestBucket.bucket] || bestBucket.bucket}</span> posts perform best with <span class="highlight">\${bestBucket.avg_score}</span> avg points</p>
           </div>
-        `;
+        \`;
       }
     }
     
@@ -1118,27 +1762,27 @@
         return;
       }
       
-      document.getElementById('sentimentByTopicChart').innerHTML = `
+      document.getElementById('sentimentByTopicChart').innerHTML = \`
         <div class="bar-chart">
-          ${sentimentByTopic.map(s => {
+          \${sentimentByTopic.map(s => {
             // Sentiment is 0-1, center at 0.5
             const sentiment = s.avg_sentiment || 0.5;
             const color = sentiment < 0.4 ? '#e74c3c' : 
                          sentiment < 0.6 ? '#f39c12' : '#2ecc71';
             const label = formatLabel(s.topic);
             const pct = (sentiment * 100).toFixed(0);
-            return `
+            return \`
               <div class="bar-row">
-                <span class="bar-label" style="min-width: 110px">${label}</span>
+                <span class="bar-label" style="min-width: 110px">\${label}</span>
                 <div class="bar-container">
-                  <div class="bar" style="width: ${sentiment * 100}%; background: ${color}">${pct}%</div>
+                  <div class="bar" style="width: \${sentiment * 100}%; background: \${color}">\${pct}%</div>
                 </div>
-                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">${s.count}</span>
+                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">\${s.count}</span>
               </div>
-            `;
+            \`;
           }).join('')}
         </div>
-      `;
+      \`;
     }
     
     function renderPostsBySentiment(data) {
@@ -1148,7 +1792,7 @@
       if (!positive.length) {
         document.getElementById('positivePostsTable').innerHTML = '<div class="empty">No data yet</div>';
       } else {
-        document.getElementById('positivePostsTable').innerHTML = `
+        document.getElementById('positivePostsTable').innerHTML = \`
           <table class="data-table">
             <thead>
               <tr>
@@ -1158,26 +1802,26 @@
               </tr>
             </thead>
             <tbody>
-              ${positive.map(p => `
+              \${positive.map(p => \`
                 <tr>
                   <td class="title-cell">
-                    <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
-                      ${escapeHtml(p.title || '[untitled]')}
+                    <a href="https://news.ycombinator.com/item?id=\${p.id}" target="_blank" rel="noopener">
+                      \${escapeHtml(p.title || '[untitled]')}
                     </a>
                   </td>
-                  <td class="num" style="color: #2ecc71">${(p.sentiment * 100).toFixed(0)}%</td>
-                  <td class="num">${p.score || 0}</td>
+                  <td class="num" style="color: #2ecc71">\${(p.sentiment * 100).toFixed(0)}%</td>
+                  <td class="num">\${p.score || 0}</td>
                 </tr>
-              `).join('')}
+              \`).join('')}
             </tbody>
           </table>
-        `;
+        \`;
       }
       
       if (!negative.length) {
         document.getElementById('negativePostsTable').innerHTML = '<div class="empty">No data yet</div>';
       } else {
-        document.getElementById('negativePostsTable').innerHTML = `
+        document.getElementById('negativePostsTable').innerHTML = \`
           <table class="data-table">
             <thead>
               <tr>
@@ -1187,20 +1831,20 @@
               </tr>
             </thead>
             <tbody>
-              ${negative.map(p => `
+              \${negative.map(p => \`
                 <tr>
                   <td class="title-cell">
-                    <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
-                      ${escapeHtml(p.title || '[untitled]')}
+                    <a href="https://news.ycombinator.com/item?id=\${p.id}" target="_blank" rel="noopener">
+                      \${escapeHtml(p.title || '[untitled]')}
                     </a>
                   </td>
-                  <td class="num" style="color: #e74c3c">${(p.sentiment * 100).toFixed(0)}%</td>
-                  <td class="num">${p.score || 0}</td>
+                  <td class="num" style="color: #e74c3c">\${(p.sentiment * 100).toFixed(0)}%</td>
+                  <td class="num">\${p.score || 0}</td>
                 </tr>
-              `).join('')}
+              \`).join('')}
             </tbody>
           </table>
-        `;
+        \`;
       }
     }
     
@@ -1210,7 +1854,7 @@
 
     async function loadEmbeddingAnalytics() {
       try {
-        const response = await fetch(`${API_BASE}/api/embedding-analytics`);
+        const response = await fetch(\`\${API_BASE}/api/embedding-analytics\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -1243,54 +1887,54 @@
       const maxVectors = 10000; // BudgetLimits.VECTORIZE_MAX_STORED_VECTORS
       const usagePercent = Math.round((vectorCount / maxVectors) * 100);
       
-      document.getElementById('embeddingCoverage').innerHTML = `
+      document.getElementById('embeddingCoverage').innerHTML = \`
         <div class="coverage-stats">
           <div class="coverage-stat">
-            <div class="value">${coverage.stories_with_embedding.toLocaleString()}</div>
+            <div class="value">\${coverage.stories_with_embedding.toLocaleString()}</div>
             <div class="label">Embedded</div>
           </div>
           <div class="coverage-stat">
-            <div class="value">${coverage.stories_with_ai.toLocaleString()}</div>
+            <div class="value">\${coverage.stories_with_ai.toLocaleString()}</div>
             <div class="label">AI Analyzed</div>
           </div>
           <div class="coverage-stat">
-            <div class="value">${coverage.coverage_percent}%</div>
+            <div class="value">\${coverage.coverage_percent}%</div>
             <div class="label">Coverage</div>
           </div>
           <div class="coverage-stat">
-            <div class="value">${usagePercent}%</div>
+            <div class="value">\${usagePercent}%</div>
             <div class="label">Capacity Used</div>
           </div>
         </div>
         
         <p style="font-size: 0.8rem; color: #666; margin-bottom: 8px">
-          Vectorize Storage: ${vectorCount.toLocaleString()} / ${maxVectors.toLocaleString()} vectors
+          Vectorize Storage: \${vectorCount.toLocaleString()} / \${maxVectors.toLocaleString()} vectors
         </p>
         <div class="coverage-bar">
-          <div class="fill" style="width: ${Math.min(usagePercent, 100)}%"></div>
+          <div class="fill" style="width: \${Math.min(usagePercent, 100)}%"></div>
         </div>
         
-        ${coverage.recent_embeddings?.length > 0 ? `
+        \${coverage.recent_embeddings?.length > 0 ? \`
           <div class="insight-box" style="margin-top: 15px">
             <h3>Recent Activity</h3>
-            <p>${coverage.recent_embeddings.map(r => `${r.date}: <span class="highlight">+${r.count}</span>`).slice(-5).join(' • ')}</p>
+            <p>\${coverage.recent_embeddings.map(r => \`\${r.date}: <span class="highlight">+\${r.count}</span>\`).slice(-5).join(' • ')}</p>
           </div>
-        ` : ''}
-      `;
+        \` : ''}
+      \`;
       
       document.getElementById('embeddingLastUpdated').innerHTML = 'Live data';
     }
     
     function renderTopicSimilarityMatrix(topicSimilarity) {
       if (!topicSimilarity || !topicSimilarity.matrix) {
-        document.getElementById('topicSimilarityMatrix').innerHTML = `
+        document.getElementById('topicSimilarityMatrix').innerHTML = \`
           <div class="empty">
             <p>Topic similarity matrix not computed yet.</p>
             <p style="font-size: 0.75rem; color: #999; margin-top: 8px">
               This is computed daily to conserve Vectorize queries.
             </p>
           </div>
-        `;
+        \`;
         document.getElementById('similarityLastUpdated').innerHTML = '';
         return;
       }
@@ -1318,19 +1962,19 @@
         return '#333';
       };
       
-      let html = `<div class="similarity-matrix"><table><thead><tr><th></th>`;
+      let html = \`<div class="similarity-matrix"><table><thead><tr><th></th>\`;
       
       // Header row with topic names
       for (const topic of topics) {
         const shortLabel = formatLabel(topic).slice(0, 12);
-        html += `<th title="${formatLabel(topic)}">${shortLabel}</th>`;
+        html += \`<th title="\${formatLabel(topic)}">\${shortLabel}</th>\`;
       }
       html += '</tr></thead><tbody>';
       
       // Data rows
       for (const topic1 of topics) {
         const label = formatLabel(topic1);
-        html += `<tr><th class="topic-label" title="${label}">${label}</th>`;
+        html += \`<tr><th class="topic-label" title="\${label}">\${label}</th>\`;
         
         for (const topic2 of topics) {
           const isSelf = topic1 === topic2;
@@ -1338,7 +1982,7 @@
           const bg = getSimilarityColor(val, isSelf);
           const color = getTextColor(val, isSelf);
           const display = isSelf ? '-' : val.toFixed(2);
-          html += `<td class="similarity-cell ${isSelf ? 'self' : ''}" style="background: ${bg}; color: ${color}" title="${formatLabel(topic1)} ↔ ${formatLabel(topic2)}: ${(val * 100).toFixed(0)}% similar">${display}</td>`;
+          html += \`<td class="similarity-cell \${isSelf ? 'self' : ''}" style="background: \${bg}; color: \${color}" title="\${formatLabel(topic1)} ↔ \${formatLabel(topic2)}: \${(val * 100).toFixed(0)}% similar">\${display}</td>\`;
         }
         html += '</tr>';
       }
@@ -1346,13 +1990,13 @@
       html += '</tbody></table></div>';
       
       // Add interpretation guide
-      html += `
+      html += \`
         <div style="margin-top: 12px; font-size: 0.7rem; color: #999; display: flex; gap: 15px; flex-wrap: wrap">
           <span><span style="display: inline-block; width: 12px; height: 12px; background: #27ae60; border-radius: 2px; vertical-align: middle"></span> High similarity (>0.8)</span>
           <span><span style="display: inline-block; width: 12px; height: 12px; background: #f1c40f; border-radius: 2px; vertical-align: middle"></span> Medium (0.6-0.8)</span>
           <span><span style="display: inline-block; width: 12px; height: 12px; background: #f39c12; border-radius: 2px; vertical-align: middle"></span> Low (0.4-0.6)</span>
         </div>
-      `;
+      \`;
       
       document.getElementById('topicSimilarityMatrix').innerHTML = html;
       
@@ -1360,10 +2004,10 @@
       const computedAt = new Date(topicSimilarity.computed_at);
       const hoursAgo = Math.round((Date.now() - topicSimilarity.computed_at) / 3600000);
       const isStale = hoursAgo > 24;
-      document.getElementById('similarityLastUpdated').innerHTML = `
-        Computed: <span class="${isStale ? 'stale' : ''}">${computedAt.toLocaleDateString()} ${computedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-        ${isStale ? ' (stale)' : ''}
-      `;
+      document.getElementById('similarityLastUpdated').innerHTML = \`
+        Computed: <span class="\${isStale ? 'stale' : ''}">\${computedAt.toLocaleDateString()} \${computedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+        \${isStale ? ' (stale)' : ''}
+      \`;
     }
     
     function renderEmbeddingsByTopic(embeddingByTopic) {
@@ -1390,24 +2034,24 @@
         const pendingWidth = totalWidth - embeddedWidth;
         const pct = t.count > 0 ? Math.round((t.with_embedding / t.count) * 100) : 0;
         
-        return `
+        return \`
           <div class="embedding-topic-row">
-            <span class="topic-name">${formatLabel(t.topic)}</span>
+            <span class="topic-name">\${formatLabel(t.topic)}</span>
             <div class="bar-container" style="max-width: 60%">
-              ${embeddedWidth > 0 ? `<div class="bar-segment embedded" style="width: ${embeddedWidth}%">${t.with_embedding > 0 && embeddedWidth > 5 ? t.with_embedding : ''}</div>` : ''}
-              ${pendingWidth > 0 ? `<div class="bar-segment pending" style="width: ${pendingWidth}%">${(t.count - t.with_embedding) > 0 && pendingWidth > 5 ? (t.count - t.with_embedding) : ''}</div>` : ''}
+              \${embeddedWidth > 0 ? \`<div class="bar-segment embedded" style="width: \${embeddedWidth}%">\${t.with_embedding > 0 && embeddedWidth > 5 ? t.with_embedding : ''}</div>\` : ''}
+              \${pendingWidth > 0 ? \`<div class="bar-segment pending" style="width: \${pendingWidth}%">\${(t.count - t.with_embedding) > 0 && pendingWidth > 5 ? (t.count - t.with_embedding) : ''}</div>\` : ''}
             </div>
-            <span class="stats">${pct}% embedded</span>
+            <span class="stats">\${pct}% embedded</span>
           </div>
-        `;
+        \`;
       }).join('');
       
-      html += `
+      html += \`
         <div style="margin-top: 15px; font-size: 0.7rem; color: #999; display: flex; gap: 15px">
           <span><span style="display: inline-block; width: 12px; height: 12px; background: #2ecc71; border-radius: 2px; vertical-align: middle"></span> Has embedding</span>
           <span><span style="display: inline-block; width: 12px; height: 12px; background: #e0e0e0; border-radius: 2px; vertical-align: middle"></span> Pending</span>
         </div>
-      `;
+      \`;
       
       document.getElementById('embeddingsByTopic').innerHTML = html;
     }
@@ -1425,25 +2069,25 @@
       const hourMap = new Map(data.map(d => [d.hour, d]));
       const hours = Array.from({ length: 24 }, (_, i) => hourMap.get(i) || { hour: i, count: 0, avg_score: 0 });
       
-      document.getElementById('hourChart').innerHTML = `
+      document.getElementById('hourChart').innerHTML = \`
         <div class="hour-grid">
-          ${hours.map(h => {
+          \${hours.map(h => {
             const intensity = maxCount > 0 ? Math.floor((h.count / maxCount) * 255) : 0;
-            const bg = `rgb(255, ${255 - intensity * 0.6}, ${255 - intensity})`;
-            return `<div class="hour-cell" style="background: ${bg}" data-tooltip="${h.hour}:00 - ${h.count} posts, ${h.avg_score} avg">${h.hour}</div>`;
+            const bg = \`rgb(255, \${255 - intensity * 0.6}, \${255 - intensity})\`;
+            return \`<div class="hour-cell" style="background: \${bg}" data-tooltip="\${h.hour}:00 - \${h.count} posts, \${h.avg_score} avg">\${h.hour}</div>\`;
           }).join('')}
         </div>
         <div class="day-labels">
-          ${Array.from({ length: 24 }, (_, i) => `<span class="day-label">${i % 6 === 0 ? i + ':00' : ''}</span>`).join('')}
+          \${Array.from({ length: 24 }, (_, i) => \`<span class="day-label">\${i % 6 === 0 ? i + ':00' : ''}</span>\`).join('')}
         </div>
-      `;
+      \`;
       
-      document.getElementById('hourInsight').innerHTML = `
+      document.getElementById('hourInsight').innerHTML = \`
         <div class="insight-box">
           <h3>Best Posting Time</h3>
-          <p>Posts at <span class="highlight">${bestHour.hour}:00 UTC</span> have the highest average score (<span class="highlight">${bestHour.avg_score}</span> points)</p>
+          <p>Posts at <span class="highlight">\${bestHour.hour}:00 UTC</span> have the highest average score (<span class="highlight">\${bestHour.avg_score}</span> points)</p>
         </div>
-      `;
+      \`;
     }
 
     function renderDayChart(data) {
@@ -1455,29 +2099,29 @@
       const maxCount = Math.max(...data.map(d => d.count || 0));
       const bestDay = data.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, data[0]);
       
-      document.getElementById('dayChart').innerHTML = `
+      document.getElementById('dayChart').innerHTML = \`
         <div class="bar-chart">
-          ${data.map(d => {
+          \${data.map(d => {
             const width = maxCount > 0 ? ((d.count / maxCount) * 100) : 0;
-            return `
+            return \`
               <div class="bar-row">
-                <span class="bar-label">${d.day_name?.slice(0, 3) || 'Day ' + d.day}</span>
+                <span class="bar-label">\${d.day_name?.slice(0, 3) || 'Day ' + d.day}</span>
                 <div class="bar-container">
-                  <div class="bar" style="width: ${width}%">${d.count}</div>
+                  <div class="bar" style="width: \${width}%">\${d.count}</div>
                 </div>
-                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">${d.avg_score} avg</span>
+                <span style="min-width: 45px; text-align: right; color: #999; font-size: 0.75rem">\${d.avg_score} avg</span>
               </div>
-            `;
+            \`;
           }).join('')}
         </div>
-      `;
+      \`;
       
-      document.getElementById('dayInsight').innerHTML = `
+      document.getElementById('dayInsight').innerHTML = \`
         <div class="insight-box">
           <h3>Best Day to Post</h3>
-          <p><span class="highlight">${bestDay.day_name || 'Day ' + bestDay.day}</span> posts have the highest average score (<span class="highlight">${bestDay.avg_score}</span> points)</p>
+          <p><span class="highlight">\${bestDay.day_name || 'Day ' + bestDay.day}</span> posts have the highest average score (<span class="highlight">\${bestDay.avg_score}</span> points)</p>
         </div>
-      `;
+      \`;
     }
 
     function renderAuthorTable(type) {
@@ -1488,30 +2132,30 @@
       }
       
       const isSuccess = type === 'success';
-      document.getElementById('authorTable').innerHTML = `
+      document.getElementById('authorTable').innerHTML = \`
         <table class="data-table">
           <thead>
             <tr>
               <th class="rank">#</th>
               <th>Author</th>
               <th class="num">Posts</th>
-              <th class="num">${isSuccess ? 'Avg Score' : 'Total Score'}</th>
+              <th class="num">\${isSuccess ? 'Avg Score' : 'Total Score'}</th>
               <th class="num">Comments</th>
             </tr>
           </thead>
           <tbody>
-            ${authors.slice(0, 10).map((a, i) => `
+            \${authors.slice(0, 10).map((a, i) => \`
               <tr>
-                <td class="rank">${i + 1}</td>
-                <td class="author">${escapeHtml(a.by)}</td>
-                <td class="num">${a.story_count || a.post_count || 0}</td>
-                <td class="num">${isSuccess ? a.avg_score : a.total_score}</td>
-                <td class="num">${a.total_comments_received || 0}</td>
+                <td class="rank">\${i + 1}</td>
+                <td class="author">\${escapeHtml(a.by)}</td>
+                <td class="num">\${a.story_count || a.post_count || 0}</td>
+                <td class="num">\${isSuccess ? a.avg_score : a.total_score}</td>
+                <td class="num">\${a.total_comments_received || 0}</td>
               </tr>
-            `).join('')}
+            \`).join('')}
           </tbody>
         </table>
-      `;
+      \`;
     }
 
     function switchAuthorTab(type, btn) {
@@ -1526,7 +2170,7 @@
         return;
       }
       
-      document.getElementById('domainTable').innerHTML = `
+      document.getElementById('domainTable').innerHTML = \`
         <table class="data-table">
           <thead>
             <tr>
@@ -1537,17 +2181,17 @@
             </tr>
           </thead>
           <tbody>
-            ${domains.slice(0, 10).map((d, i) => `
+            \${domains.slice(0, 10).map((d, i) => \`
               <tr>
-                <td class="rank">${i + 1}</td>
-                <td>${escapeHtml(d.domain)}</td>
-                <td class="num">${d.count}</td>
-                <td class="num">${d.avg_score}</td>
+                <td class="rank">\${i + 1}</td>
+                <td>\${escapeHtml(d.domain)}</td>
+                <td class="num">\${d.count}</td>
+                <td class="num">\${d.avg_score}</td>
               </tr>
-            `).join('')}
+            \`).join('')}
           </tbody>
         </table>
-      `;
+      \`;
     }
 
     function renderTopItems(type) {
@@ -1557,30 +2201,30 @@
         return;
       }
       
-      document.getElementById('topItems').innerHTML = `
+      document.getElementById('topItems').innerHTML = \`
         <table class="data-table">
           <thead>
             <tr>
               <th class="rank">#</th>
               <th>Title</th>
-              <th class="num">${type === 'score' ? 'Points' : 'Comments'}</th>
+              <th class="num">\${type === 'score' ? 'Points' : 'Comments'}</th>
             </tr>
           </thead>
           <tbody>
-            ${items.map((item, i) => `
+            \${items.map((item, i) => \`
               <tr>
-                <td class="rank">${i + 1}</td>
+                <td class="rank">\${i + 1}</td>
                 <td class="title-cell">
-                  <a href="https://news.ycombinator.com/item?id=${item.id}" target="_blank" rel="noopener">
-                    ${escapeHtml(item.title || `[${item.type}]`)}
+                  <a href="https://news.ycombinator.com/item?id=\${item.id}" target="_blank" rel="noopener">
+                    \${escapeHtml(item.title || \`[\${item.type}]\`)}
                   </a>
                 </td>
-                <td class="num">${type === 'score' ? (item.score || 0) : (item.descendants || 0)}</td>
+                <td class="num">\${type === 'score' ? (item.score || 0) : (item.descendants || 0)}</td>
               </tr>
-            `).join('')}
+            \`).join('')}
           </tbody>
         </table>
-      `;
+      \`;
     }
 
     function switchTopTab(type, btn) {
@@ -1596,7 +2240,7 @@
         return;
       }
       
-      document.getElementById('viralPosts').innerHTML = `
+      document.getElementById('viralPosts').innerHTML = \`
         <table class="data-table">
           <thead>
             <tr>
@@ -1607,36 +2251,36 @@
             </tr>
           </thead>
           <tbody>
-            ${posts.slice(0, 8).map((p, i) => `
+            \${posts.slice(0, 8).map((p, i) => \`
               <tr>
-                <td class="rank">${i + 1}</td>
+                <td class="rank">\${i + 1}</td>
                 <td class="title-cell">
-                  <a href="https://news.ycombinator.com/item?id=${p.id}" target="_blank" rel="noopener">
-                    ${escapeHtml(p.title || '[untitled]')}
+                  <a href="https://news.ycombinator.com/item?id=\${p.id}" target="_blank" rel="noopener">
+                    \${escapeHtml(p.title || '[untitled]')}
                   </a>
                 </td>
-                <td class="num">+${p.score_growth}</td>
-                <td class="num">${p.peak_score}</td>
+                <td class="num">+\${p.score_growth}</td>
+                <td class="num">\${p.peak_score}</td>
               </tr>
-            `).join('')}
+            \`).join('')}
           </tbody>
         </table>
-      `;
+      \`;
       
       const topViral = posts[0];
       if (topViral) {
-        document.getElementById('viralInsight').innerHTML = `
+        document.getElementById('viralInsight').innerHTML = \`
           <div class="insight-box">
             <h3>Fastest Growing</h3>
-            <p>"${escapeHtml((topViral.title || '').slice(0, 50))}..." grew <span class="highlight">+${topViral.score_growth} points</span> over ${topViral.hours_tracked || '?'} hours</p>
+            <p>"\${escapeHtml((topViral.title || '').slice(0, 50))}..." grew <span class="highlight">+\${topViral.score_growth} points</span> over \${topViral.hours_tracked || '?'} hours</p>
           </div>
-        `;
+        \`;
       }
     }
 
     async function loadMetrics() {
       try {
-        const response = await fetch(`${API_BASE}/api/metrics`);
+        const response = await fetch(\`\${API_BASE}/api/metrics\`);
         if (!response.ok) throw new Error('API request failed');
         
         const metrics = await response.json();
@@ -1646,7 +2290,7 @@
           return;
         }
         
-        document.getElementById('metricsTable').innerHTML = `
+        document.getElementById('metricsTable').innerHTML = \`
           <table class="data-table">
             <thead>
               <tr>
@@ -1657,17 +2301,17 @@
               </tr>
             </thead>
             <tbody>
-              ${metrics.slice(0, 8).map(m => `
+              \${metrics.slice(0, 8).map(m => \`
                 <tr>
-                  <td>${m.worker_type || 'unknown'}</td>
-                  <td>${formatTimeAgo(m.started_at)}</td>
-                  <td class="num">${m.items_processed || 0}</td>
-                  <td class="num">${m.duration_ms ? (m.duration_ms / 1000).toFixed(1) + 's' : '-'}</td>
+                  <td>\${m.worker_type || 'unknown'}</td>
+                  <td>\${formatTimeAgo(m.started_at)}</td>
+                  <td class="num">\${m.items_processed || 0}</td>
+                  <td class="num">\${m.duration_ms ? (m.duration_ms / 1000).toFixed(1) + 's' : '-'}</td>
                 </tr>
-              `).join('')}
+              \`).join('')}
             </tbody>
           </table>
-        `;
+        \`;
       } catch (e) {
         console.error('Failed to load metrics:', e);
         document.getElementById('metricsTable').innerHTML = '<div class="empty">Failed to load metrics</div>';
@@ -1696,38 +2340,38 @@
       // Best posting time
       if (postsByHour.length) {
         const bestHour = postsByHour.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a);
-        insights.push(`<p><strong>Optimal posting time:</strong> ${bestHour.hour}:00 UTC yields the highest average score (${bestHour.avg_score} points)</p>`);
+        insights.push(\`<p><strong>Optimal posting time:</strong> \${bestHour.hour}:00 UTC yields the highest average score (\${bestHour.avg_score} points)</p>\`);
       }
       
       // Best day
       if (postsByDay.length) {
         const bestDay = postsByDay.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a);
-        insights.push(`<p><strong>Best day to post:</strong> ${bestDay.day_name} submissions perform best with ${bestDay.avg_score} avg points</p>`);
+        insights.push(\`<p><strong>Best day to post:</strong> \${bestDay.day_name} submissions perform best with \${bestDay.avg_score} avg points</p>\`);
       }
       
       // Best topic from AI
       if (topicPerf.length) {
         const bestTopic = topicPerf.reduce((a, b) => (b.avg_score || 0) > (a.avg_score || 0) ? b : a, topicPerf[0]);
         const label = formatLabel(bestTopic.topic);
-        insights.push(`<p><strong>Best topic:</strong> ${label} stories average ${bestTopic.avg_score} points</p>`);
+        insights.push(\`<p><strong>Best topic:</strong> \${label} stories average \${bestTopic.avg_score} points</p>\`);
       }
       
       // Best content type from AI
       if (contentTypePerf.length) {
         const bestType = contentTypePerf[0];
         const label = formatLabel(bestType.content_type);
-        insights.push(`<p><strong>Best content type:</strong> ${label} posts lead with ${bestType.avg_score} avg points</p>`);
+        insights.push(\`<p><strong>Best content type:</strong> \${label} posts lead with \${bestType.avg_score} avg points</p>\`);
       }
       
       // Overall sentiment
       if (avgSentiment !== undefined) {
         const sentimentLabel = avgSentiment < 0.4 ? 'negative' : avgSentiment < 0.6 ? 'neutral' : 'positive';
-        insights.push(`<p><strong>Community sentiment:</strong> HN titles are generally ${sentimentLabel} (${(avgSentiment * 100).toFixed(0)}% positive)</p>`);
+        insights.push(\`<p><strong>Community sentiment:</strong> HN titles are generally \${sentimentLabel} (\${(avgSentiment * 100).toFixed(0)}% positive)</p>\`);
       }
       
       // Embedding coverage insight
       if (embeddingCoverage.stories_with_embedding > 0) {
-        insights.push(`<p><strong>Similarity search:</strong> ${embeddingCoverage.stories_with_embedding.toLocaleString()} stories have embeddings for "Find Similar" feature</p>`);
+        insights.push(\`<p><strong>Similarity search:</strong> \${embeddingCoverage.stories_with_embedding.toLocaleString()} stories have embeddings for "Find Similar" feature</p>\`);
       }
       
       // Topic similarity insight - find most similar pair
@@ -1744,36 +2388,36 @@
           }
         }
         if (maxSim > 0.5) {
-          insights.push(`<p><strong>Topic overlap:</strong> ${formatLabel(simPair[0])} and ${formatLabel(simPair[1])} are most similar (${(maxSim * 100).toFixed(0)}% overlap)</p>`);
+          insights.push(\`<p><strong>Topic overlap:</strong> \${formatLabel(simPair[0])} and \${formatLabel(simPair[1])} are most similar (\${(maxSim * 100).toFixed(0)}% overlap)</p>\`);
         }
       }
       
       // Top performer pattern
       if (successfulAuthors.length > 0) {
         const top = successfulAuthors[0];
-        insights.push(`<p><strong>Top performer:</strong> ${escapeHtml(top.by)} averages ${top.avg_score} points per story with ${top.story_count} stories</p>`);
+        insights.push(\`<p><strong>Top performer:</strong> \${escapeHtml(top.by)} averages \${top.avg_score} points per story with \${top.story_count} stories</p>\`);
       }
       
       // Engagement stats
       if (detailed.avg_comments_per_story) {
-        insights.push(`<p><strong>Engagement:</strong> Stories receive ${detailed.avg_comments_per_story} comments on average</p>`);
+        insights.push(\`<p><strong>Engagement:</strong> Stories receive \${detailed.avg_comments_per_story} comments on average</p>\`);
       }
       
       // Viral indicator
       if (viralPosts.length > 0) {
         const avgGrowth = viralPosts.reduce((sum, p) => sum + (p.score_growth || 0), 0) / viralPosts.length;
-        insights.push(`<p><strong>Viral threshold:</strong> Top viral posts gained ${Math.round(avgGrowth)}+ points during tracking</p>`);
+        insights.push(\`<p><strong>Viral threshold:</strong> Top viral posts gained \${Math.round(avgGrowth)}+ points during tracking</p>\`);
       }
       
       if (insights.length === 0) {
         insights.push('<p>Not enough data to generate insights yet. Keep archiving to unlock analytics!</p>');
       }
       
-      document.getElementById('successInsights').innerHTML = `
+      document.getElementById('successInsights').innerHTML = \`
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 15px;">
-          ${insights.map(i => `<div class="insight-box">${i}</div>`).join('')}
+          \${insights.map(i => \`<div class="insight-box">\${i}</div>\`).join('')}
         </div>
-      `;
+      \`;
     }
 
     function escapeHtml(str) {
@@ -1810,3 +2454,4 @@
   </script>
 </body>
 </html>
+`;

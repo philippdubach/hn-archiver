@@ -9,6 +9,7 @@ import { Config, BudgetLimits } from './types';
 import { runDiscovery } from './workers/discovery';
 import { runUpdateTracker } from './workers/update-tracker';
 import { runBackfill } from './workers/backfill';
+import { INDEX_HTML, ANALYTICS_HTML } from './frontend';
 import {
   getArchiveStats,
   cleanupOldErrors,
@@ -46,8 +47,49 @@ import {
   setCachedAnalytics,
   getSampleStoriesPerTopic,
 } from './db';
-import { getCurrentTimestampMs } from './utils';
+import { getCurrentTimestampMs, timingSafeEqual, getCSPHeaders } from './utils';
 import { batchAnalyzeStories, generateEmbedding } from './ai-analysis';
+
+/**
+ * Simple in-memory rate limiter for public API endpoints
+ * Resets on cold start but provides basic DoS protection
+ */
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_REQUESTS = 100; // requests per window
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute window
+
+function checkRateLimit(clientIP: string): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(clientIP);
+  
+  // Cleanup old entries periodically (every 100 checks)
+  if (Math.random() < 0.01) {
+    for (const [ip, data] of rateLimitMap) {
+      if (data.resetAt < now) rateLimitMap.delete(ip);
+    }
+  }
+  
+  if (!entry || entry.resetAt < now) {
+    rateLimitMap.set(clientIP, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, remaining: RATE_LIMIT_REQUESTS - 1 };
+  }
+  
+  if (entry.count >= RATE_LIMIT_REQUESTS) {
+    return { allowed: false, remaining: 0 };
+  }
+  
+  entry.count++;
+  return { allowed: true, remaining: RATE_LIMIT_REQUESTS - entry.count };
+}
+
+/**
+ * Validate authorization header using timing-safe comparison
+ */
+function validateAuth(authHeader: string | null, secret: string): boolean {
+  if (!authHeader) return false;
+  const expected = `Bearer ${secret}`;
+  return timingSafeEqual(authHeader, expected);
+}
 
 /**
  * Scheduled event handler - routes cron triggers to appropriate workers
@@ -107,7 +149,17 @@ export default {
       'http://localhost:8787', // Local development
     ];
     const origin = request.headers.get('Origin');
-    const corsOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+    const isAllowedOrigin = origin && allowedOrigins.includes(origin);
+    
+    // For non-GET requests from unknown origins, reject
+    if (request.method !== 'GET' && origin && !isAllowedOrigin) {
+      return new Response(JSON.stringify({ error: 'CORS not allowed' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    
+    const corsOrigin = isAllowedOrigin ? origin : allowedOrigins[0];
     const corsHeaders = {
       'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -118,10 +170,50 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
+    
+    // Rate limiting for public API endpoints
+    const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const rateLimit = checkRateLimit(clientIP);
+    if (!rateLimit.allowed) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded', retry_after: 60 }), {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': '60',
+          ...corsHeaders,
+        },
+      });
+    }
 
     try {
-      // Health check endpoint
-      if (path === '/health' || path === '/') {
+      // ============================================
+      // Frontend HTML Routes (same-origin serving)
+      // ============================================
+      
+      // Serve index.html at / and /index.html
+      if (path === '/' || path === '/index.html') {
+        return new Response(INDEX_HTML, {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=300', // 5 min cache
+            ...getCSPHeaders(),
+          },
+        });
+      }
+
+      // Serve analytics.html at /analytics and /analytics.html
+      if (path === '/analytics' || path === '/analytics.html') {
+        return new Response(ANALYTICS_HTML, {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=300', // 5 min cache
+            ...getCSPHeaders(),
+          },
+        });
+      }
+
+      // Health check endpoint (API only now)
+      if (path === '/health') {
         let dbStatus: 'connected' | 'error' = 'connected';
         let stats: Awaited<ReturnType<typeof getArchiveStats>> | null = null;
         
@@ -392,14 +484,18 @@ export default {
         // This endpoint computes and caches topic similarity matrix
         // Should be triggered once daily to stay within Vectorize query limits
         const triggerSecret = env.TRIGGER_SECRET;
-        if (triggerSecret) {
-          const authHeader = request.headers.get('Authorization');
-          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
-            return new Response(
-              JSON.stringify({ error: 'Unauthorized' }),
-              { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
-            );
-          }
+        if (!triggerSecret) {
+          return new Response(
+            JSON.stringify({ error: 'Server configuration error', message: 'Authentication not configured' }),
+            { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+          );
+        }
+        const authHeader = request.headers.get('Authorization');
+        if (!validateAuth(authHeader, triggerSecret)) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+          );
         }
 
         if (!env.VECTORIZE) {
@@ -534,14 +630,18 @@ export default {
 
         // Require authentication for similarity search (protects Vectorize quota)
         const triggerSecret = env.TRIGGER_SECRET;
-        if (triggerSecret) {
-          const authHeader = request.headers.get('Authorization');
-          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
-            return new Response(
-              JSON.stringify({ error: 'Unauthorized', message: 'Similarity search requires authentication' }),
-              { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
-            );
-          }
+        if (!triggerSecret) {
+          return new Response(
+            JSON.stringify({ error: 'Server configuration error', message: 'Authentication not configured' }),
+            { status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+          );
+        }
+        const authHeader = request.headers.get('Authorization');
+        if (!validateAuth(authHeader, triggerSecret)) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized', message: 'Similarity search requires authentication' }),
+            { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+          );
         }
 
         // Check budget limits before querying
@@ -722,19 +822,25 @@ export default {
       if (path.startsWith('/trigger/')) {
         const triggerSecret = env.TRIGGER_SECRET;
         if (!triggerSecret) {
-          console.warn('[Worker] TRIGGER_SECRET not configured - trigger endpoints are unprotected!');
+          // Block all trigger endpoints if secret is not configured
+          console.error('[Worker] TRIGGER_SECRET not configured - blocking trigger endpoints');
+          return new Response(
+            JSON.stringify({ error: 'Server configuration error', message: 'Authentication not configured' }),
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            }
+          );
         }
-        if (triggerSecret) {
-          const authHeader = request.headers.get('Authorization');
-          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
-            return new Response(
-              JSON.stringify({ error: 'Unauthorized', message: 'Invalid or missing Authorization header' }),
-              {
-                status: 401,
-                headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              }
-            );
-          }
+        const authHeader = request.headers.get('Authorization');
+        if (!validateAuth(authHeader, triggerSecret)) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized', message: 'Invalid or missing Authorization header' }),
+            {
+              status: 401,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            }
+          );
         }
         
         // Auth passed (or no secret configured) - handle trigger routes
