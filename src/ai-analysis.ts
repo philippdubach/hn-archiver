@@ -4,12 +4,10 @@
  * - Topic classification (tech, business, politics, science, etc.)
  * - Content type detection (Show HN, Ask HN, news, tutorial, etc.)
  * - Sentiment analysis
- * 
- * Note: Text embeddings are available but not stored (requires vector storage).
- * Enable embedding generation when vector search is implemented.
+ * - Text embeddings for similarity search (via Vectorize)
  */
 
-import type { HNItem } from './types';
+import type { HNItem, VectorizeBinding, VectorizeVector } from './types';
 
 // AI binding type (added to WorkerEnv)
 export interface AIBinding {
@@ -21,6 +19,16 @@ export interface AIAnalysisResult {
   contentType: string | null;
   sentiment: number | null;
   analyzedAt: number;
+}
+
+export interface EmbeddingResult {
+  id: number;
+  embedding: number[];
+  metadata: {
+    topic: string;
+    score: number;
+    title: string;
+  };
 }
 
 // Topic categories for classification
@@ -258,4 +266,104 @@ export async function batchAnalyzeStories(
 
   console.log(`[AI] Successfully analyzed ${results.size}/${stories.length} stories`);
   return results;
+}
+
+/**
+ * Generate embedding for a story title using BGE-base model
+ * Returns 768-dimensional vector for Vectorize storage
+ * Cost: ~2-3 neurons per embedding
+ */
+export async function generateEmbedding(
+  ai: AIBinding,
+  title: string
+): Promise<number[] | null> {
+  try {
+    const response = await ai.run('@cf/baai/bge-base-en-v1.5', {
+      text: title,
+    }) as { data: number[][] };
+
+    // BGE returns { data: [[...768 floats]] }
+    if (response?.data?.[0]?.length === 768) {
+      return response.data[0];
+    }
+    
+    console.warn('[AI] Unexpected embedding response format');
+    return null;
+  } catch (error) {
+    console.error('[AI] Embedding generation failed:', error);
+    return null;
+  }
+}
+
+/**
+ * Batch generate embeddings for multiple stories
+ * Stores them in Vectorize with metadata for filtered search
+ */
+export async function batchGenerateEmbeddings(
+  ai: AIBinding,
+  vectorize: VectorizeBinding,
+  stories: Array<{
+    id: number;
+    title: string;
+    ai_topic: string | null;
+    score: number | null;
+  }>,
+  maxItems: number = 50
+): Promise<{ success: number; failed: number }> {
+  const toProcess = stories.slice(0, maxItems);
+  
+  if (toProcess.length === 0) {
+    return { success: 0, failed: 0 };
+  }
+
+  console.log(`[AI] Generating embeddings for ${toProcess.length} stories`);
+
+  const vectors: VectorizeVector[] = [];
+  let failed = 0;
+
+  // Process in small batches to avoid overwhelming the AI
+  const batchSize = 10;
+  for (let i = 0; i < toProcess.length; i += batchSize) {
+    const batch = toProcess.slice(i, i + batchSize);
+    
+    const results = await Promise.allSettled(
+      batch.map(async (story) => {
+        const embedding = await generateEmbedding(ai, story.title);
+        if (embedding) {
+          return {
+            id: String(story.id),
+            values: embedding,
+            metadata: {
+              topic: story.ai_topic || 'other',
+              score: story.score || 0,
+              // Truncate title for metadata (10KB limit per vector)
+              title: story.title.slice(0, 200),
+            },
+          } as VectorizeVector;
+        }
+        return null;
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        vectors.push(result.value);
+      } else {
+        failed++;
+      }
+    }
+  }
+
+  // Upsert all vectors to Vectorize
+  if (vectors.length > 0) {
+    try {
+      await vectorize.upsert(vectors);
+      console.log(`[AI] Upserted ${vectors.length} vectors to Vectorize`);
+    } catch (error) {
+      console.error('[AI] Vectorize upsert failed:', error);
+      return { success: 0, failed: toProcess.length };
+    }
+  }
+
+  return { success: vectors.length, failed };
 }

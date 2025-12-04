@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS items (
     ai_content_type TEXT,  -- Content type: show-hn, ask-hn, news, tutorial, etc.
     ai_sentiment REAL,  -- Sentiment score: 0 (negative) to 1 (positive)
     ai_analyzed_at INTEGER,  -- When AI analysis was performed
+    embedding_generated_at INTEGER,  -- When vector embedding was generated for Vectorize
     
     -- Constraints (no foreign key constraint - we archive all items, not just referenced ones)
     CHECK (time > 0),
@@ -161,3 +162,29 @@ CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
 
 CREATE INDEX IF NOT EXISTS idx_metrics_worker 
     ON worker_metrics(worker_type, timestamp DESC);
+
+-- Usage counters for budget tracking (D1 reads, Vectorize queries, etc.)
+-- Critical for staying within paid plan included limits
+CREATE TABLE IF NOT EXISTS usage_counters (
+    counter_key TEXT PRIMARY KEY NOT NULL,  -- e.g., 'd1_reads_2025-12-04', 'vectorize_queries_2025-12'
+    counter_value INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    
+    CHECK (counter_value >= 0),
+    CHECK (updated_at > 0)
+);
+
+-- Index for embedding backfill - efficiently find stories needing embeddings
+CREATE INDEX IF NOT EXISTS idx_items_embedding_pending 
+    ON items(ai_analyzed_at DESC)
+    WHERE type = 'story' AND ai_analyzed_at IS NOT NULL AND embedding_generated_at IS NULL AND deleted = 0;
+
+-- Analytics cache table for storing daily-computed expensive analytics
+-- (e.g., topic similarity matrix which requires many Vectorize queries)
+CREATE TABLE IF NOT EXISTS analytics_cache (
+    cache_key TEXT PRIMARY KEY NOT NULL,  -- e.g., 'topic_similarity_matrix', 'embedding_coverage'
+    data TEXT NOT NULL,  -- JSON encoded data
+    computed_at INTEGER NOT NULL,  -- When this was computed (for staleness check)
+    
+    CHECK (computed_at > 0)
+);

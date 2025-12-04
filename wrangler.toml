@@ -20,6 +20,11 @@ crons = ["*/3 * * * *", "*/10 * * * *", "0 */2 * * *"]
 [ai]
 binding = "AI"
 
+# Vectorize binding for similarity search
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "hn-similar"
+
 # Observability settings
 [observability]
 enabled = true

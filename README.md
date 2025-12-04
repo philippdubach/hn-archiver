@@ -1,35 +1,44 @@
 # HackerNews Archiver
 
-A HackerNews archiving system that captures posts and comments in real-time, tracks how they change over time, and provides AI-powered content analysis. Runs entirely on Cloudflare's free tier.
+A HackerNews archiving system built on Cloudflare Workers. Captures posts and comments in real-time, tracks how they change over time, classifies content with AI, and supports semantic similarity search using vector embeddings.
 
-## What it does
+## Features
 
 - Archives every new HN submission and comment as they appear
 - Tracks score and comment count changes with periodic snapshots
 - Classifies content by topic, type, and sentiment using Workers AI
+- Generates vector embeddings for similarity search via Cloudflare Vectorize
 - Provides a web interface for browsing the archive and viewing analytics
+- Protected admin endpoints for manual triggers and expensive operations
 
-## How it works
+## Architecture
 
-Three workers run on schedules:
+Four workers run on cron schedules:
 
 - **Discovery** (every 3 min) - fetches new items from `/v0/maxitem`
 - **Updates** (every 10 min) - refreshes changed items via `/v0/updates`
-- **Backfill** (every 2 hours) - revisits high-value older items, runs AI analysis on unprocessed stories
+- **Backfill** (every 2 hours) - revisits high-value older items and runs AI analysis
+- **Embedding backfill** - generates vector embeddings for analyzed stories (runs within backfill)
 
-All data lives in a D1 SQLite database. The frontend is plain HTML/JS served from the worker.
+All data lives in D1 (SQLite). Vector embeddings are stored in Cloudflare Vectorize for similarity search. The frontend is static HTML/JS served directly from the worker.
 
 ## Setup
 
 ```bash
 npm install
 
-# Create the database
+# Create the D1 database
 npx wrangler d1 create hn-archiver
 # Copy the database_id to wrangler.toml
 
-# Initialize schema
+# Create the Vectorize index for similarity search
+npx wrangler vectorize create hn-similar --dimensions=768 --metric=cosine
+
+# Initialize the database schema
 npx wrangler d1 execute hn-archiver --local --file=schema.sql
+
+# Set the admin secret for protected endpoints
+npx wrangler secret put TRIGGER_SECRET
 
 # Run locally
 npm run dev
@@ -38,30 +47,59 @@ npm run dev
 npm run deploy
 ```
 
-## Endpoints
+## API Endpoints
+
+### Public (read-only)
 
 | Path | Description |
 |------|-------------|
-| `/` | Health check |
+| `/` | Health check and status |
 | `/stats` | Archive statistics |
-| `/api/items` | Paginated item list |
-| `/api/item/:id` | Single item with snapshots |
-| `/api/analytics` | Basic analytics |
-| `/api/advanced-analytics` | Detailed stats (authors, domains, viral posts) |
+| `/api/items` | Paginated item list with filtering |
+| `/api/item/:id` | Single item with snapshot history |
+| `/api/analytics` | Basic type distribution and top items |
+| `/api/advanced-analytics` | Authors, domains, viral posts, time patterns |
 | `/api/ai-analytics` | AI classification breakdown |
-| `/trigger/*` | Manual worker triggers (protected) |
+| `/api/ai-analytics-extended` | Full AI stats with topic/sentiment performance |
+| `/api/embedding-analytics` | Embedding coverage and topic similarity matrix |
+| `/api/usage` | Budget monitoring for Vectorize queries |
+| `/api/metrics` | Worker run history |
+
+### Protected (require Authorization header)
+
+| Path | Description |
+|------|-------------|
+| `/trigger/discovery` | Manual discovery run |
+| `/trigger/updates` | Manual updates run |
+| `/trigger/backfill` | Manual backfill run |
+| `/trigger/ai-backfill` | Run AI analysis on pending stories |
+| `/api/similar/:id` | Find semantically similar posts |
+| `/api/compute-topic-similarity` | Recompute topic similarity matrix |
+
+Protected endpoints require: `Authorization: Bearer <TRIGGER_SECRET>`
 
 ## Frontend
 
-- `index.html` - Archive browser with filtering and comment expansion
-- `analytics.html` - Charts and statistics dashboard
+- `index.html` - Archive browser with filtering, pagination, and comment expansion
+- `analytics.html` - Dashboard with posting patterns, author stats, AI analysis breakdown, and embedding coverage
 
-## Tech stack
+## Tech Stack
 
-- Cloudflare Workers (compute)
-- D1 (SQLite database)
-- Workers AI (content classification)
-- TypeScript
+- **Cloudflare Workers** - serverless compute with cron triggers
+- **D1** - SQLite database for items, snapshots, and metrics
+- **Workers AI** - Llama 3.2 for topic/content classification, DistilBERT for sentiment
+- **Vectorize** - vector database for 768-dimensional embeddings (bge-base-en-v1.5)
+- **TypeScript** - type-safe codebase
+
+## Budget Considerations
+
+The system is designed to stay within Cloudflare's paid plan included limits:
+
+- D1: well under 25B reads/month
+- Vectorize: 1,500 queries/day limit, 10,000 stored vectors max
+- Embedding generation: 50 per backfill run
+
+Usage is tracked in the `usage_counters` table and exposed via `/api/usage`.
 
 ## License
 

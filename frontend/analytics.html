@@ -402,6 +402,126 @@
     .empty-ai a:hover {
       text-decoration: underline;
     }
+    .last-updated {
+      font-size: 0.7rem;
+      color: #999;
+      padding: 4px 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    .last-updated .stale {
+      color: #e67e22;
+    }
+    /* Similarity Matrix Styles */
+    .similarity-matrix {
+      overflow-x: auto;
+    }
+    .similarity-matrix table {
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      width: 100%;
+    }
+    .similarity-matrix th, .similarity-matrix td {
+      padding: 6px 4px;
+      text-align: center;
+      border: 1px solid #eee;
+      white-space: nowrap;
+    }
+    .similarity-matrix th {
+      background: #f9f9f9;
+      font-weight: 600;
+      color: #666;
+    }
+    .similarity-matrix th.topic-label {
+      text-align: right;
+      padding-right: 8px;
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .similarity-matrix td.similarity-cell {
+      min-width: 40px;
+    }
+    .similarity-matrix td.self {
+      background: #f0f0f0;
+      color: #999;
+    }
+    /* Coverage stats */
+    .coverage-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .coverage-stat {
+      text-align: center;
+      padding: 15px 10px;
+      background: #f9f9f9;
+      border-radius: 8px;
+    }
+    .coverage-stat .value {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #ff6600;
+    }
+    .coverage-stat .label {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 4px;
+    }
+    .coverage-bar {
+      height: 12px;
+      background: #f0f0f0;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .coverage-bar .fill {
+      height: 100%;
+      background: linear-gradient(90deg, #ff6600, #ff8533);
+      border-radius: 6px;
+      transition: width 0.5s ease;
+    }
+    .embedding-topic-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .embedding-topic-row .topic-name {
+      min-width: 120px;
+      font-size: 0.8rem;
+      color: #666;
+      text-align: right;
+    }
+    .embedding-topic-row .bar-container {
+      flex: 1;
+      display: flex;
+      gap: 2px;
+    }
+    .embedding-topic-row .bar-segment {
+      height: 20px;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      color: white;
+      min-width: 20px;
+    }
+    .embedding-topic-row .bar-segment.embedded {
+      background: #2ecc71;
+    }
+    .embedding-topic-row .bar-segment.pending {
+      background: #e0e0e0;
+      color: #666;
+    }
+    .embedding-topic-row .stats {
+      min-width: 60px;
+      font-size: 0.7rem;
+      color: #999;
+      text-align: right;
+    }
   </style>
 </head>
 <body>
@@ -519,6 +639,39 @@
       </div>
     </div>
 
+    <!-- Similarity Search Analytics -->
+    <h3 class="section-title">Similarity Search Analytics</h3>
+    <div class="grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Embedding Coverage</h2>
+          <div id="embeddingLastUpdated" class="last-updated"></div>
+        </div>
+        <div id="embeddingCoverage">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header">
+          <h2>Topic Similarity Matrix</h2>
+          <div id="similarityLastUpdated" class="last-updated"></div>
+        </div>
+        <div id="topicSimilarityMatrix">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card full">
+        <h2>Embeddings by Topic</h2>
+        <div id="embeddingsByTopic">
+          <div class="loading">Loading</div>
+        </div>
+      </div>
+    </div>
+
     <div class="grid">
       <div class="card">
         <h2>Sentiment Analysis</h2>
@@ -621,6 +774,7 @@
         loadBasicAnalytics(),
         loadAdvancedAnalytics(),
         loadAIAnalytics(),
+        loadEmbeddingAnalytics(),
         loadMetrics()
       ]);
       generateInsights();
@@ -774,14 +928,7 @@
         
       } catch (e) {
         console.error('Failed to load AI analytics:', e);
-        const emptyMsg = `
-          <div class="empty-ai">
-            <div class="icon">🤖</div>
-            <p>AI analysis data not available yet.</p>
-            <p><a href="#" onclick="triggerAIBackfill(); return false;">Run AI backfill</a> to analyze stories.</p>
-          </div>
-        `;
-        document.getElementById('topicChart').innerHTML = emptyMsg;
+        document.getElementById('topicChart').innerHTML = '<div class="empty-ai"><div class="icon">🤖</div><p>AI analysis data not available yet.</p><p style="font-size: 0.8rem; color: #999">Analysis runs automatically via scheduled workers.</p></div>';
         document.getElementById('contentTypeChart').innerHTML = '<div class="empty">No data</div>';
         document.getElementById('sentimentChart').innerHTML = '<div class="empty">No data</div>';
         document.getElementById('sentimentByTopicChart').innerHTML = '<div class="empty">No data</div>';
@@ -1057,13 +1204,212 @@
       }
     }
     
-    async function triggerAIBackfill() {
-      alert('AI backfill triggered. Refresh the page in a minute to see results.');
+    // Note: AI backfill is triggered via cron or authenticated admin endpoint
+
+    let embeddingAnalyticsData = {};
+
+    async function loadEmbeddingAnalytics() {
       try {
-        await fetch(`${API_BASE}/trigger/ai-backfill`, { method: 'POST' });
+        const response = await fetch(`${API_BASE}/api/embedding-analytics`);
+        if (!response.ok) throw new Error('API request failed');
+        
+        const data = await response.json();
+        embeddingAnalyticsData = data;
+        
+        // Render embedding coverage
+        renderEmbeddingCoverage(data.embedding_coverage, data.vectorize);
+        
+        // Render topic similarity matrix
+        renderTopicSimilarityMatrix(data.topic_similarity);
+        
+        // Render embeddings by topic
+        renderEmbeddingsByTopic(data.embedding_coverage?.embedding_by_topic || []);
+        
       } catch (e) {
-        console.error('Failed to trigger AI backfill:', e);
+        console.error('Failed to load embedding analytics:', e);
+        document.getElementById('embeddingCoverage').innerHTML = '<div class="empty">Embedding analytics not available</div>';
+        document.getElementById('topicSimilarityMatrix').innerHTML = '<div class="empty">Topic similarity not computed yet</div>';
+        document.getElementById('embeddingsByTopic').innerHTML = '<div class="empty">No data</div>';
       }
+    }
+    
+    function renderEmbeddingCoverage(coverage, vectorize) {
+      if (!coverage) {
+        document.getElementById('embeddingCoverage').innerHTML = '<div class="empty">No embedding data yet</div>';
+        return;
+      }
+      
+      const vectorCount = vectorize?.vectorCount || coverage.stories_with_embedding;
+      const maxVectors = 10000; // BudgetLimits.VECTORIZE_MAX_STORED_VECTORS
+      const usagePercent = Math.round((vectorCount / maxVectors) * 100);
+      
+      document.getElementById('embeddingCoverage').innerHTML = `
+        <div class="coverage-stats">
+          <div class="coverage-stat">
+            <div class="value">${coverage.stories_with_embedding.toLocaleString()}</div>
+            <div class="label">Embedded</div>
+          </div>
+          <div class="coverage-stat">
+            <div class="value">${coverage.stories_with_ai.toLocaleString()}</div>
+            <div class="label">AI Analyzed</div>
+          </div>
+          <div class="coverage-stat">
+            <div class="value">${coverage.coverage_percent}%</div>
+            <div class="label">Coverage</div>
+          </div>
+          <div class="coverage-stat">
+            <div class="value">${usagePercent}%</div>
+            <div class="label">Capacity Used</div>
+          </div>
+        </div>
+        
+        <p style="font-size: 0.8rem; color: #666; margin-bottom: 8px">
+          Vectorize Storage: ${vectorCount.toLocaleString()} / ${maxVectors.toLocaleString()} vectors
+        </p>
+        <div class="coverage-bar">
+          <div class="fill" style="width: ${Math.min(usagePercent, 100)}%"></div>
+        </div>
+        
+        ${coverage.recent_embeddings?.length > 0 ? `
+          <div class="insight-box" style="margin-top: 15px">
+            <h3>Recent Activity</h3>
+            <p>${coverage.recent_embeddings.map(r => `${r.date}: <span class="highlight">+${r.count}</span>`).slice(-5).join(' • ')}</p>
+          </div>
+        ` : ''}
+      `;
+      
+      document.getElementById('embeddingLastUpdated').innerHTML = 'Live data';
+    }
+    
+    function renderTopicSimilarityMatrix(topicSimilarity) {
+      if (!topicSimilarity || !topicSimilarity.matrix) {
+        document.getElementById('topicSimilarityMatrix').innerHTML = `
+          <div class="empty">
+            <p>Topic similarity matrix not computed yet.</p>
+            <p style="font-size: 0.75rem; color: #999; margin-top: 8px">
+              This is computed daily to conserve Vectorize queries.
+            </p>
+          </div>
+        `;
+        document.getElementById('similarityLastUpdated').innerHTML = '';
+        return;
+      }
+      
+      const matrix = topicSimilarity.matrix;
+      const topics = Object.keys(matrix);
+      
+      if (topics.length === 0) {
+        document.getElementById('topicSimilarityMatrix').innerHTML = '<div class="empty">No topics with embeddings yet</div>';
+        return;
+      }
+      
+      // Get similarity color - green for high, yellow for medium, gray for low
+      const getSimilarityColor = (val, isSelf) => {
+        if (isSelf) return '#f0f0f0';
+        if (val >= 0.8) return '#27ae60';
+        if (val >= 0.6) return '#f1c40f';
+        if (val >= 0.4) return '#f39c12';
+        return '#ecf0f1';
+      };
+      
+      const getTextColor = (val, isSelf) => {
+        if (isSelf) return '#999';
+        if (val >= 0.6) return 'white';
+        return '#333';
+      };
+      
+      let html = `<div class="similarity-matrix"><table><thead><tr><th></th>`;
+      
+      // Header row with topic names
+      for (const topic of topics) {
+        const shortLabel = formatLabel(topic).slice(0, 12);
+        html += `<th title="${formatLabel(topic)}">${shortLabel}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      
+      // Data rows
+      for (const topic1 of topics) {
+        const label = formatLabel(topic1);
+        html += `<tr><th class="topic-label" title="${label}">${label}</th>`;
+        
+        for (const topic2 of topics) {
+          const isSelf = topic1 === topic2;
+          const val = matrix[topic1]?.[topic2] || 0;
+          const bg = getSimilarityColor(val, isSelf);
+          const color = getTextColor(val, isSelf);
+          const display = isSelf ? '-' : val.toFixed(2);
+          html += `<td class="similarity-cell ${isSelf ? 'self' : ''}" style="background: ${bg}; color: ${color}" title="${formatLabel(topic1)} ↔ ${formatLabel(topic2)}: ${(val * 100).toFixed(0)}% similar">${display}</td>`;
+        }
+        html += '</tr>';
+      }
+      
+      html += '</tbody></table></div>';
+      
+      // Add interpretation guide
+      html += `
+        <div style="margin-top: 12px; font-size: 0.7rem; color: #999; display: flex; gap: 15px; flex-wrap: wrap">
+          <span><span style="display: inline-block; width: 12px; height: 12px; background: #27ae60; border-radius: 2px; vertical-align: middle"></span> High similarity (>0.8)</span>
+          <span><span style="display: inline-block; width: 12px; height: 12px; background: #f1c40f; border-radius: 2px; vertical-align: middle"></span> Medium (0.6-0.8)</span>
+          <span><span style="display: inline-block; width: 12px; height: 12px; background: #f39c12; border-radius: 2px; vertical-align: middle"></span> Low (0.4-0.6)</span>
+        </div>
+      `;
+      
+      document.getElementById('topicSimilarityMatrix').innerHTML = html;
+      
+      // Show when it was computed
+      const computedAt = new Date(topicSimilarity.computed_at);
+      const hoursAgo = Math.round((Date.now() - topicSimilarity.computed_at) / 3600000);
+      const isStale = hoursAgo > 24;
+      document.getElementById('similarityLastUpdated').innerHTML = `
+        Computed: <span class="${isStale ? 'stale' : ''}">${computedAt.toLocaleDateString()} ${computedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+        ${isStale ? ' (stale)' : ''}
+      `;
+    }
+    
+    function renderEmbeddingsByTopic(embeddingByTopic) {
+      if (!embeddingByTopic || embeddingByTopic.length === 0) {
+        document.getElementById('embeddingsByTopic').innerHTML = '<div class="empty">No topic data yet</div>';
+        return;
+      }
+      
+      // Filter out 'unanalyzed' for cleaner display and sort by count
+      const topics = embeddingByTopic
+        .filter(t => t.topic !== 'unanalyzed')
+        .sort((a, b) => b.count - a.count);
+      
+      if (topics.length === 0) {
+        document.getElementById('embeddingsByTopic').innerHTML = '<div class="empty">No AI-analyzed topics yet</div>';
+        return;
+      }
+      
+      const maxCount = Math.max(...topics.map(t => t.count));
+      
+      let html = topics.map(t => {
+        const totalWidth = (t.count / maxCount) * 100;
+        const embeddedWidth = t.count > 0 ? (t.with_embedding / t.count) * totalWidth : 0;
+        const pendingWidth = totalWidth - embeddedWidth;
+        const pct = t.count > 0 ? Math.round((t.with_embedding / t.count) * 100) : 0;
+        
+        return `
+          <div class="embedding-topic-row">
+            <span class="topic-name">${formatLabel(t.topic)}</span>
+            <div class="bar-container" style="max-width: 60%">
+              ${embeddedWidth > 0 ? `<div class="bar-segment embedded" style="width: ${embeddedWidth}%">${t.with_embedding > 0 && embeddedWidth > 5 ? t.with_embedding : ''}</div>` : ''}
+              ${pendingWidth > 0 ? `<div class="bar-segment pending" style="width: ${pendingWidth}%">${(t.count - t.with_embedding) > 0 && pendingWidth > 5 ? (t.count - t.with_embedding) : ''}</div>` : ''}
+            </div>
+            <span class="stats">${pct}% embedded</span>
+          </div>
+        `;
+      }).join('');
+      
+      html += `
+        <div style="margin-top: 15px; font-size: 0.7rem; color: #999; display: flex; gap: 15px">
+          <span><span style="display: inline-block; width: 12px; height: 12px; background: #2ecc71; border-radius: 2px; vertical-align: middle"></span> Has embedding</span>
+          <span><span style="display: inline-block; width: 12px; height: 12px; background: #e0e0e0; border-radius: 2px; vertical-align: middle"></span> Pending</span>
+        </div>
+      `;
+      
+      document.getElementById('embeddingsByTopic').innerHTML = html;
     }
 
     function renderHourChart(data) {
@@ -1341,6 +1687,10 @@
       const contentTypePerf = aiAnalyticsData.content_type_performance || [];
       const avgSentiment = aiAnalyticsData.avg_sentiment;
       
+      // Embedding data
+      const embeddingCoverage = embeddingAnalyticsData.embedding_coverage || {};
+      const topicSimilarity = embeddingAnalyticsData.topic_similarity?.matrix || {};
+      
       const insights = [];
       
       // Best posting time
@@ -1373,6 +1723,29 @@
       if (avgSentiment !== undefined) {
         const sentimentLabel = avgSentiment < 0.4 ? 'negative' : avgSentiment < 0.6 ? 'neutral' : 'positive';
         insights.push(`<p><strong>Community sentiment:</strong> HN titles are generally ${sentimentLabel} (${(avgSentiment * 100).toFixed(0)}% positive)</p>`);
+      }
+      
+      // Embedding coverage insight
+      if (embeddingCoverage.stories_with_embedding > 0) {
+        insights.push(`<p><strong>Similarity search:</strong> ${embeddingCoverage.stories_with_embedding.toLocaleString()} stories have embeddings for "Find Similar" feature</p>`);
+      }
+      
+      // Topic similarity insight - find most similar pair
+      const topicKeys = Object.keys(topicSimilarity);
+      if (topicKeys.length >= 2) {
+        let maxSim = 0;
+        let simPair = ['', ''];
+        for (const t1 of topicKeys) {
+          for (const t2 of topicKeys) {
+            if (t1 !== t2 && topicSimilarity[t1]?.[t2] > maxSim) {
+              maxSim = topicSimilarity[t1][t2];
+              simPair = [t1, t2];
+            }
+          }
+        }
+        if (maxSim > 0.5) {
+          insights.push(`<p><strong>Topic overlap:</strong> ${formatLabel(simPair[0])} and ${formatLabel(simPair[1])} are most similar (${(maxSim * 100).toFixed(0)}% overlap)</p>`);
+        }
       }
       
       // Top performer pattern

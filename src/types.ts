@@ -84,10 +84,80 @@ export interface AIBinding {
   run(model: string, inputs: unknown): Promise<unknown>;
 }
 
+// Vectorize binding type for similarity search
+export interface VectorizeBinding {
+  insert(vectors: VectorizeVector[]): Promise<VectorizeVectorMutation>;
+  upsert(vectors: VectorizeVector[]): Promise<VectorizeVectorMutation>;
+  query(vector: number[], options?: VectorizeQueryOptions): Promise<VectorizeMatches>;
+  getByIds(ids: string[]): Promise<VectorizeVector[]>;
+  deleteByIds(ids: string[]): Promise<VectorizeVectorMutation>;
+  describe(): Promise<VectorizeIndexDetails>;
+}
+
+export interface VectorizeVector {
+  id: string;
+  values: number[];
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface VectorizeQueryOptions {
+  topK?: number;
+  returnValues?: boolean;
+  returnMetadata?: 'none' | 'indexed' | 'all';
+  filter?: Record<string, unknown>;
+}
+
+export interface VectorizeMatches {
+  matches: VectorizeMatch[];
+  count: number;
+}
+
+export interface VectorizeMatch {
+  id: string;
+  score: number;
+  values?: number[];
+  metadata?: Record<string, string | number | boolean>;
+}
+
+export interface VectorizeVectorMutation {
+  mutationId: string;
+  count: number;
+}
+
+export interface VectorizeIndexDetails {
+  dimensions: number;
+  vectorCount: number;
+}
+
+// Usage counter for budget tracking
+export interface UsageCounter {
+  counter_key: string;
+  counter_value: number;
+  updated_at: number;
+}
+
+// Budget limits for paid plan (stay within included amounts)
+export const BudgetLimits = {
+  // D1: 25 billion reads/month, but we'll set a conservative daily limit
+  D1_READS_PER_DAY: 500_000_000,  // 500M/day = 15B/month (well under 25B)
+  // Vectorize: 50 million queried dimensions/month
+  // 768 dimensions per query, so ~65k queries/month max
+  // Conservative: 1500 queries/day to stay safe
+  VECTORIZE_QUERIES_PER_DAY: 1500,
+  // Vectorize: 10 million stored dimensions
+  // 768 dimensions per vector = ~13k vectors max
+  // Conservative: 10k vectors total
+  VECTORIZE_MAX_STORED_VECTORS: 10000,
+  // Embedding generation per backfill run
+  EMBEDDING_BATCH_SIZE: 50,
+} as const;
+
 // Worker environment bindings
 export interface WorkerEnv {
   DB: D1Database;
   AI: AIBinding;
+  VECTORIZE: VectorizeBinding;
+  TRIGGER_SECRET?: string;  // Optional secret for protected endpoints
 }
 
 // Worker execution result

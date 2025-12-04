@@ -615,16 +615,20 @@ export async function getItems(
   const validOrderBy = ['time', 'score', 'descendants'].includes(orderBy) ? orderBy : 'time';
   const validOrder = order === 'asc' ? 'ASC' : 'DESC';
   
+  // Validate type against known HN item types
+  const validTypes = ['story', 'comment', 'job', 'poll', 'pollopt'];
+  const validatedType = type && validTypes.includes(type) ? type : undefined;
+  
   try {
     let countQuery = 'SELECT COUNT(*) as count FROM items';
     let itemsQuery = `SELECT id, type, deleted, dead, title, url, text, by, time, score, descendants, parent, first_seen_at, last_updated_at FROM items`;
     const conditions: string[] = [];
     const bindings: (string | number)[] = [];
     
-    if (type) {
-      // Filter by specific type
+    if (validatedType) {
+      // Filter by specific type (validated against known types)
       conditions.push('type = ?');
-      bindings.push(type);
+      bindings.push(validatedType);
     } else {
       // Default: exclude comments (show only posts)
       conditions.push("type != 'comment'");
@@ -1425,5 +1429,432 @@ export async function getTopPostsBySentiment(db: D1Database, limit: number = 5):
     };
   } catch (error) {
     throw new DatabaseError('Failed to get top posts by sentiment', 'get_top_posts_by_sentiment', error);
+  }
+}
+
+/**
+ * Get stories that need embeddings (have AI analysis but no embedding yet)
+ */
+export async function getStoriesNeedingEmbeddings(
+  db: D1Database,
+  limit: number = 50
+): Promise<Array<{ id: number; title: string; ai_topic: string | null; score: number | null }>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT id, title, ai_topic, score
+        FROM items
+        WHERE type = 'story' 
+          AND ai_analyzed_at IS NOT NULL 
+          AND embedding_generated_at IS NULL 
+          AND deleted = 0
+          AND title IS NOT NULL
+        ORDER BY ai_analyzed_at DESC
+        LIMIT ?
+      `)
+      .bind(limit)
+      .all<{ id: number; title: string; ai_topic: string | null; score: number | null }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get stories needing embeddings', 'get_stories_needing_embeddings', error);
+  }
+}
+
+/**
+ * Mark stories as having embeddings generated
+ */
+export async function markEmbeddingsGenerated(
+  db: D1Database,
+  itemIds: number[]
+): Promise<void> {
+  if (itemIds.length === 0) return;
+  
+  const now = getCurrentTimestampMs();
+  const placeholders = itemIds.map(() => '?').join(',');
+  
+  try {
+    await db
+      .prepare(`
+        UPDATE items 
+        SET embedding_generated_at = ?
+        WHERE id IN (${placeholders})
+      `)
+      .bind(now, ...itemIds)
+      .run();
+  } catch (error) {
+    throw new DatabaseError('Failed to mark embeddings generated', 'mark_embeddings_generated', error);
+  }
+}
+
+/**
+ * Get story by ID with embedding status (for similarity search)
+ */
+export async function getStoryForSimilarity(
+  db: D1Database,
+  itemId: number
+): Promise<{ id: number; title: string; embedding_generated_at: number | null } | null> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT id, title, embedding_generated_at
+        FROM items
+        WHERE id = ? AND type = 'story' AND deleted = 0
+      `)
+      .bind(itemId)
+      .first<{ id: number; title: string; embedding_generated_at: number | null }>();
+    
+    return result || null;
+  } catch (error) {
+    throw new DatabaseError('Failed to get story for similarity', 'get_story_for_similarity', error);
+  }
+}
+
+/**
+ * Get multiple stories by IDs (for enriching similarity results)
+ */
+export async function getStoriesByIds(
+  db: D1Database,
+  itemIds: number[]
+): Promise<Array<{ id: number; title: string; url: string | null; score: number | null; by: string | null; time: number; ai_topic: string | null }>> {
+  if (itemIds.length === 0) return [];
+  
+  const placeholders = itemIds.map(() => '?').join(',');
+  
+  try {
+    const result = await db
+      .prepare(`
+        SELECT id, title, url, score, by, time, ai_topic
+        FROM items
+        WHERE id IN (${placeholders})
+      `)
+      .bind(...itemIds)
+      .all<{ id: number; title: string; url: string | null; score: number | null; by: string | null; time: number; ai_topic: string | null }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get stories by IDs', 'get_stories_by_ids', error);
+  }
+}
+
+// ============================================================================
+// Usage Tracking Functions (Budget Guardrails)
+// ============================================================================
+
+/**
+ * Increment a usage counter (for D1 reads, Vectorize queries, etc.)
+ * Uses date-based keys for daily/monthly tracking
+ */
+export async function incrementUsageCounter(
+  db: D1Database,
+  counterKey: string,
+  increment: number = 1
+): Promise<number> {
+  const now = getCurrentTimestampMs();
+  
+  try {
+    // Upsert the counter
+    await db
+      .prepare(`
+        INSERT INTO usage_counters (counter_key, counter_value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(counter_key) DO UPDATE SET
+          counter_value = counter_value + excluded.counter_value,
+          updated_at = excluded.updated_at
+      `)
+      .bind(counterKey, increment, now)
+      .run();
+    
+    // Return the new value
+    const result = await db
+      .prepare(`SELECT counter_value FROM usage_counters WHERE counter_key = ?`)
+      .bind(counterKey)
+      .first<{ counter_value: number }>();
+    
+    return result?.counter_value || increment;
+  } catch (error) {
+    console.error('Failed to increment usage counter:', error);
+    return 0; // Don't throw - usage tracking shouldn't break main functionality
+  }
+}
+
+/**
+ * Get current usage statistics for budget monitoring
+ */
+export async function getUsageStats(
+  db: D1Database
+): Promise<{
+  vectorize_queries_today: number;
+  vectorize_queries_month: number;
+  embeddings_stored: number;
+  d1_reads_today: number;
+}> {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const month = today.slice(0, 7); // YYYY-MM
+  
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          counter_key,
+          counter_value
+        FROM usage_counters
+        WHERE counter_key IN (?, ?, ?, ?)
+      `)
+      .bind(
+        `vectorize_queries_${today}`,
+        `vectorize_queries_${month}`,
+        'embeddings_stored_total',
+        `d1_reads_${today}`
+      )
+      .all<{ counter_key: string; counter_value: number }>();
+    
+    const counters = new Map(
+      (result.results || []).map(r => [r.counter_key, r.counter_value])
+    );
+    
+    return {
+      vectorize_queries_today: counters.get(`vectorize_queries_${today}`) || 0,
+      vectorize_queries_month: counters.get(`vectorize_queries_${month}`) || 0,
+      embeddings_stored: counters.get('embeddings_stored_total') || 0,
+      d1_reads_today: counters.get(`d1_reads_${today}`) || 0,
+    };
+  } catch (error) {
+    console.error('Failed to get usage stats:', error);
+    return {
+      vectorize_queries_today: 0,
+      vectorize_queries_month: 0,
+      embeddings_stored: 0,
+      d1_reads_today: 0,
+    };
+  }
+}
+
+/**
+ * Check if we're within budget limits before performing expensive operations
+ * Returns false if we should skip the operation to stay within limits
+ */
+export async function checkUsageLimits(
+  db: D1Database,
+  operation: 'vectorize_query' | 'embedding_backfill'
+): Promise<{ allowed: boolean; reason?: string }> {
+  const stats = await getUsageStats(db);
+  
+  // Import budget limits
+  const { BudgetLimits } = await import('./types');
+  
+  if (operation === 'vectorize_query') {
+    if (stats.vectorize_queries_today >= BudgetLimits.VECTORIZE_QUERIES_PER_DAY) {
+      return { 
+        allowed: false, 
+        reason: `Daily Vectorize query limit reached (${stats.vectorize_queries_today}/${BudgetLimits.VECTORIZE_QUERIES_PER_DAY})` 
+      };
+    }
+  }
+  
+  if (operation === 'embedding_backfill') {
+    if (stats.embeddings_stored >= BudgetLimits.VECTORIZE_MAX_STORED_VECTORS) {
+      return { 
+        allowed: false, 
+        reason: `Max stored vectors limit reached (${stats.embeddings_stored}/${BudgetLimits.VECTORIZE_MAX_STORED_VECTORS})` 
+      };
+    }
+  }
+  
+  return { allowed: true };
+}
+
+// ============================================================================
+// Embedding Analytics Functions
+// ============================================================================
+
+/**
+ * Get embedding coverage statistics for analytics dashboard
+ */
+export async function getEmbeddingCoverage(db: D1Database): Promise<{
+  total_stories: number;
+  stories_with_ai: number;
+  stories_with_embedding: number;
+  coverage_percent: number;
+  embedding_by_topic: Array<{ topic: string; count: number; with_embedding: number }>;
+  recent_embeddings: Array<{ date: string; count: number }>;
+}> {
+  try {
+    const [statsResult, byTopicResult, recentResult] = await Promise.all([
+      db.prepare(`
+        SELECT 
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND deleted = 0) as total_stories,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NOT NULL AND deleted = 0) as stories_with_ai,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND embedding_generated_at IS NOT NULL AND deleted = 0) as stories_with_embedding
+      `).first<{ total_stories: number; stories_with_ai: number; stories_with_embedding: number }>(),
+      
+      db.prepare(`
+        SELECT 
+          COALESCE(ai_topic, 'unanalyzed') as topic,
+          COUNT(*) as count,
+          SUM(CASE WHEN embedding_generated_at IS NOT NULL THEN 1 ELSE 0 END) as with_embedding
+        FROM items
+        WHERE type = 'story' AND deleted = 0
+        GROUP BY COALESCE(ai_topic, 'unanalyzed')
+        ORDER BY count DESC
+      `).all<{ topic: string; count: number; with_embedding: number }>(),
+      
+      db.prepare(`
+        SELECT 
+          date(embedding_generated_at / 1000, 'unixepoch') as date,
+          COUNT(*) as count
+        FROM items
+        WHERE embedding_generated_at IS NOT NULL
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT 14
+      `).all<{ date: string; count: number }>(),
+    ]);
+    
+    const stats = statsResult || { total_stories: 0, stories_with_ai: 0, stories_with_embedding: 0 };
+    const coverage = stats.stories_with_ai > 0 
+      ? Math.round((stats.stories_with_embedding / stats.stories_with_ai) * 100) 
+      : 0;
+    
+    return {
+      total_stories: stats.total_stories,
+      stories_with_ai: stats.stories_with_ai,
+      stories_with_embedding: stats.stories_with_embedding,
+      coverage_percent: coverage,
+      embedding_by_topic: byTopicResult.results || [],
+      recent_embeddings: (recentResult.results || []).reverse(),
+    };
+  } catch (error) {
+    throw new DatabaseError('Failed to get embedding coverage', 'get_embedding_coverage', error);
+  }
+}
+
+/**
+ * Get topic cluster statistics - shows how stories are distributed by topic
+ * and their average similarity to other stories in the same topic
+ */
+export async function getTopicClusterStats(db: D1Database): Promise<Array<{
+  topic: string;
+  story_count: number;
+  embedded_count: number;
+  avg_score: number;
+  avg_sentiment: number;
+}>> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT 
+          ai_topic as topic,
+          COUNT(*) as story_count,
+          SUM(CASE WHEN embedding_generated_at IS NOT NULL THEN 1 ELSE 0 END) as embedded_count,
+          ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
+          ROUND(COALESCE(AVG(ai_sentiment), 0.5), 3) as avg_sentiment
+        FROM items
+        WHERE ai_topic IS NOT NULL AND deleted = 0
+        GROUP BY ai_topic
+        ORDER BY story_count DESC
+      `)
+      .all<{ topic: string; story_count: number; embedded_count: number; avg_score: number; avg_sentiment: number }>();
+    
+    return result.results || [];
+  } catch (error) {
+    throw new DatabaseError('Failed to get topic cluster stats', 'get_topic_cluster_stats', error);
+  }
+}
+
+/**
+ * Get or create cached analytics data (computed daily to save resources)
+ */
+export async function getCachedAnalytics(
+  db: D1Database,
+  cacheKey: string
+): Promise<{ data: unknown; computed_at: number } | null> {
+  try {
+    const result = await db
+      .prepare(`
+        SELECT data, computed_at 
+        FROM analytics_cache 
+        WHERE cache_key = ?
+      `)
+      .bind(cacheKey)
+      .first<{ data: string; computed_at: number }>();
+    
+    if (!result) return null;
+    
+    return {
+      data: JSON.parse(result.data),
+      computed_at: result.computed_at,
+    };
+  } catch (error) {
+    console.error('Failed to get cached analytics:', error);
+    return null;
+  }
+}
+
+/**
+ * Store computed analytics data in cache
+ */
+export async function setCachedAnalytics(
+  db: D1Database,
+  cacheKey: string,
+  data: unknown
+): Promise<void> {
+  const now = getCurrentTimestampMs();
+  
+  try {
+    await db
+      .prepare(`
+        INSERT INTO analytics_cache (cache_key, data, computed_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(cache_key) DO UPDATE SET
+          data = excluded.data,
+          computed_at = excluded.computed_at
+      `)
+      .bind(cacheKey, JSON.stringify(data), now)
+      .run();
+  } catch (error) {
+    console.error('Failed to set cached analytics:', error);
+  }
+}
+
+/**
+ * Get sample stories per topic for topic similarity computation
+ * Returns up to N representative stories per topic (highest scored)
+ */
+export async function getSampleStoriesPerTopic(
+  db: D1Database,
+  samplesPerTopic: number = 3
+): Promise<Map<string, Array<{ id: number; title: string }>>> {
+  try {
+    // Get topics first
+    const topics = await db
+      .prepare(`
+        SELECT DISTINCT ai_topic as topic
+        FROM items
+        WHERE ai_topic IS NOT NULL AND embedding_generated_at IS NOT NULL AND deleted = 0
+      `)
+      .all<{ topic: string }>();
+    
+    const result = new Map<string, Array<{ id: number; title: string }>>();
+    
+    // For each topic, get top N stories by score
+    for (const { topic } of topics.results || []) {
+      const stories = await db
+        .prepare(`
+          SELECT id, title
+          FROM items
+          WHERE ai_topic = ? AND embedding_generated_at IS NOT NULL AND deleted = 0
+          ORDER BY score DESC
+          LIMIT ?
+        `)
+        .bind(topic, samplesPerTopic)
+        .all<{ id: number; title: string }>();
+      
+      result.set(topic, stories.results || []);
+    }
+    
+    return result;
+  } catch (error) {
+    throw new DatabaseError('Failed to get sample stories per topic', 'get_sample_stories_per_topic', error);
   }
 }

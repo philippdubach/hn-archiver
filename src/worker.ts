@@ -5,7 +5,7 @@
  */
 
 import type { WorkerEnv, StatsResponse, HealthResponse } from './types';
-import { Config } from './types';
+import { Config, BudgetLimits } from './types';
 import { runDiscovery } from './workers/discovery';
 import { runUpdateTracker } from './workers/update-tracker';
 import { runBackfill } from './workers/backfill';
@@ -35,9 +35,19 @@ import {
   getSentimentDistribution,
   getSentimentByTopic,
   getTopPostsBySentiment,
+  getStoryForSimilarity,
+  getStoriesByIds,
+  incrementUsageCounter,
+  getUsageStats,
+  checkUsageLimits,
+  getEmbeddingCoverage,
+  getTopicClusterStats,
+  getCachedAnalytics,
+  setCachedAnalytics,
+  getSampleStoriesPerTopic,
 } from './db';
 import { getCurrentTimestampMs } from './utils';
-import { batchAnalyzeStories } from './ai-analysis';
+import { batchAnalyzeStories, generateEmbedding } from './ai-analysis';
 
 /**
  * Scheduled event handler - routes cron triggers to appropriate workers
@@ -91,11 +101,17 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // CORS headers for browser access
+    // CORS headers for browser access - restrict to our domain only
+    const allowedOrigins = [
+      'https://hn-archiver.philippd.workers.dev',
+      'http://localhost:8787', // Local development
+    ];
+    const origin = request.headers.get('Origin');
+    const corsOrigin = origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
     const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
 
     // Handle OPTIONS for CORS preflight
@@ -332,10 +348,382 @@ export default {
         });
       }
 
+      // Embedding analytics endpoint - coverage, topic clusters, similarity matrix
+      if (path === '/api/embedding-analytics') {
+        const [
+          embeddingCoverage,
+          topicClusters,
+          cachedSimilarity,
+        ] = await Promise.all([
+          getEmbeddingCoverage(env.DB),
+          getTopicClusterStats(env.DB),
+          getCachedAnalytics(env.DB, 'topic_similarity_matrix'),
+        ]);
+
+        // Get vectorize info if available
+        let vectorizeInfo = null;
+        if (env.VECTORIZE) {
+          try {
+            const info = await env.VECTORIZE.describe();
+            vectorizeInfo = {
+              dimensions: info.dimensions,
+              vectorCount: info.vectorCount,
+            };
+          } catch (e) {
+            console.error('[Worker] Failed to get Vectorize info:', e);
+          }
+        }
+        
+        return new Response(JSON.stringify({
+          embedding_coverage: embeddingCoverage,
+          topic_clusters: topicClusters,
+          topic_similarity: cachedSimilarity ? {
+            matrix: cachedSimilarity.data,
+            computed_at: cachedSimilarity.computed_at,
+          } : null,
+          vectorize: vectorizeInfo,
+        }), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
+      // Compute topic similarity matrix (expensive - run daily via trigger)
+      if (path === '/api/compute-topic-similarity') {
+        // This endpoint computes and caches topic similarity matrix
+        // Should be triggered once daily to stay within Vectorize query limits
+        const triggerSecret = env.TRIGGER_SECRET;
+        if (triggerSecret) {
+          const authHeader = request.headers.get('Authorization');
+          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
+            return new Response(
+              JSON.stringify({ error: 'Unauthorized' }),
+              { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+            );
+          }
+        }
+
+        if (!env.VECTORIZE) {
+          return new Response(JSON.stringify({ error: 'Vectorize not configured' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        // Check budget - this uses many queries
+        const limitCheck = await checkUsageLimits(env.DB, 'vectorize_query');
+        if (!limitCheck.allowed) {
+          return new Response(JSON.stringify({ 
+            error: 'Rate limit', 
+            message: limitCheck.reason 
+          }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        try {
+          // Get sample stories per topic (3 per topic to compute average similarity)
+          const samplesByTopic = await getSampleStoriesPerTopic(env.DB, 3);
+          const topics = Array.from(samplesByTopic.keys());
+          
+          if (topics.length < 2) {
+            return new Response(JSON.stringify({ 
+              error: 'Not enough topics with embeddings',
+              topics_found: topics.length
+            }), {
+              status: 400,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
+
+          // Get embeddings for all sample stories
+          const allStoryIds = Array.from(samplesByTopic.values()).flat().map(s => String(s.id));
+          const vectors = await env.VECTORIZE.getByIds(allStoryIds);
+          const vectorMap = new Map(vectors.map(v => [v.id, v.values]));
+
+          // Compute average embedding per topic
+          const topicEmbeddings = new Map<string, number[]>();
+          for (const [topic, stories] of samplesByTopic) {
+            const embeddings = stories
+              .map(s => vectorMap.get(String(s.id)))
+              .filter((v): v is number[] => v !== undefined);
+            
+            if (embeddings.length > 0) {
+              // Average the embeddings
+              const avg = embeddings[0].map((_, i) => 
+                embeddings.reduce((sum, e) => sum + e[i], 0) / embeddings.length
+              );
+              topicEmbeddings.set(topic, avg);
+            }
+          }
+
+          // Compute pairwise cosine similarity between topic centroids
+          const similarityMatrix: Record<string, Record<string, number>> = {};
+          const topicsWithEmbeddings = Array.from(topicEmbeddings.keys());
+          
+          for (const topic1 of topicsWithEmbeddings) {
+            similarityMatrix[topic1] = {};
+            const vec1 = topicEmbeddings.get(topic1)!;
+            
+            for (const topic2 of topicsWithEmbeddings) {
+              const vec2 = topicEmbeddings.get(topic2)!;
+              // Cosine similarity
+              const dotProduct = vec1.reduce((sum, v, i) => sum + v * vec2[i], 0);
+              const mag1 = Math.sqrt(vec1.reduce((sum, v) => sum + v * v, 0));
+              const mag2 = Math.sqrt(vec2.reduce((sum, v) => sum + v * v, 0));
+              const similarity = mag1 && mag2 ? dotProduct / (mag1 * mag2) : 0;
+              similarityMatrix[topic1][topic2] = Math.round(similarity * 100) / 100;
+            }
+          }
+
+          // Track query usage (we did 1 getByIds call)
+          const today = new Date().toISOString().split('T')[0];
+          await incrementUsageCounter(env.DB, `vectorize_queries_${today}`, 1);
+
+          // Cache the result
+          await setCachedAnalytics(env.DB, 'topic_similarity_matrix', similarityMatrix);
+
+          return new Response(JSON.stringify({
+            success: true,
+            topics: topicsWithEmbeddings.length,
+            matrix: similarityMatrix,
+          }), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+
+        } catch (error) {
+          console.error('[Worker] Topic similarity computation failed:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Computation failed',
+            message: error instanceof Error ? error.message : String(error),
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+      }
+
+      // ============================================
+      // Similarity Search API
+      // ============================================
+
+      // Find similar posts using Vectorize
+      if (path.startsWith('/api/similar/')) {
+        const idStr = path.replace('/api/similar/', '');
+        const itemId = parseInt(idStr);
+        
+        // Validate item ID
+        const MAX_REASONABLE_ID = 100_000_000;
+        if (isNaN(itemId) || itemId < 1 || itemId > MAX_REASONABLE_ID) {
+          return new Response(JSON.stringify({ error: 'Invalid item ID' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        // Check if Vectorize is available
+        if (!env.VECTORIZE || !env.AI) {
+          return new Response(JSON.stringify({ 
+            error: 'Similarity search not available',
+            message: 'Vectorize or AI binding not configured'
+          }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        // Require authentication for similarity search (protects Vectorize quota)
+        const triggerSecret = env.TRIGGER_SECRET;
+        if (triggerSecret) {
+          const authHeader = request.headers.get('Authorization');
+          if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
+            return new Response(
+              JSON.stringify({ error: 'Unauthorized', message: 'Similarity search requires authentication' }),
+              { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+            );
+          }
+        }
+
+        // Check budget limits before querying
+        const limitCheck = await checkUsageLimits(env.DB, 'vectorize_query');
+        if (!limitCheck.allowed) {
+          return new Response(JSON.stringify({ 
+            error: 'Rate limit exceeded',
+            message: limitCheck.reason
+          }), {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        // Get the source story
+        const story = await getStoryForSimilarity(env.DB, itemId);
+        if (!story) {
+          return new Response(JSON.stringify({ error: 'Story not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+
+        const limitParam = parseInt(url.searchParams.get('limit') || '5');
+        const limit = Math.min(Math.max(1, isNaN(limitParam) ? 5 : limitParam), 10);
+
+        try {
+          let queryVector: number[];
+          
+          // If the story has an embedding, use queryById (cheaper)
+          // Otherwise, generate embedding on the fly
+          if (story.embedding_generated_at) {
+            // Query by ID - most efficient
+            const vectors = await env.VECTORIZE.getByIds([String(itemId)]);
+            if (vectors.length === 0 || !vectors[0].values) {
+              // Embedding missing from Vectorize, generate on the fly
+              const embedding = await generateEmbedding(env.AI, story.title);
+              if (!embedding) {
+                return new Response(JSON.stringify({ 
+                  error: 'Failed to generate embedding',
+                  similar: []
+                }), {
+                  status: 500,
+                  headers: { 'Content-Type': 'application/json', ...corsHeaders },
+                });
+              }
+              queryVector = embedding;
+            } else {
+              queryVector = vectors[0].values;
+            }
+          } else {
+            // Generate embedding on the fly for stories without one
+            const embedding = await generateEmbedding(env.AI, story.title);
+            if (!embedding) {
+              return new Response(JSON.stringify({ 
+                error: 'Failed to generate embedding',
+                similar: []
+              }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json', ...corsHeaders },
+              });
+            }
+            queryVector = embedding;
+          }
+
+          // Query for similar vectors (add 1 to exclude self if it's in the index)
+          const matches = await env.VECTORIZE.query(queryVector, {
+            topK: limit + 1,
+            returnMetadata: 'all',
+          });
+
+          // Track usage (768 dimensions per query)
+          const today = new Date().toISOString().split('T')[0];
+          const month = today.slice(0, 7);
+          await Promise.all([
+            incrementUsageCounter(env.DB, `vectorize_queries_${today}`, 1),
+            incrementUsageCounter(env.DB, `vectorize_queries_${month}`, 1),
+          ]);
+
+          // Filter out the source story and get top results
+          const similarIds = matches.matches
+            .filter(m => m.id !== String(itemId))
+            .slice(0, limit)
+            .map(m => ({
+              id: parseInt(m.id),
+              score: m.score,
+              metadata: m.metadata,
+            }));
+
+          // Enrich with full story data from D1
+          const storyIds = similarIds.map(s => s.id);
+          const stories = await getStoriesByIds(env.DB, storyIds);
+          const storyMap = new Map(stories.map(s => [s.id, s]));
+
+          const similar = similarIds.map(match => {
+            const storyData = storyMap.get(match.id);
+            return {
+              id: match.id,
+              similarity: match.score,
+              title: storyData?.title || (match.metadata?.title as string) || '[unknown]',
+              url: storyData?.url || null,
+              score: storyData?.score || (match.metadata?.score as number) || 0,
+              by: storyData?.by || null,
+              time: storyData?.time || 0,
+              topic: storyData?.ai_topic || (match.metadata?.topic as string) || null,
+            };
+          });
+
+          return new Response(JSON.stringify({
+            source: {
+              id: itemId,
+              title: story.title,
+            },
+            similar,
+          }), {
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+
+        } catch (error) {
+          console.error('[Worker] Similarity search failed:', error);
+          return new Response(JSON.stringify({ 
+            error: 'Similarity search failed',
+            message: error instanceof Error ? error.message : String(error),
+            similar: []
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          });
+        }
+      }
+
+      // Usage statistics for budget monitoring
+      if (path === '/api/usage') {
+        const usage = await getUsageStats(env.DB);
+        
+        // Get Vectorize index info if available
+        let vectorizeInfo = null;
+        if (env.VECTORIZE) {
+          try {
+            const info = await env.VECTORIZE.describe();
+            vectorizeInfo = {
+              dimensions: info.dimensions,
+              vectorCount: info.vectorCount,
+            };
+          } catch (e) {
+            console.error('[Worker] Failed to get Vectorize info:', e);
+          }
+        }
+        
+        return new Response(JSON.stringify({
+          usage: {
+            vectorize_queries_today: usage.vectorize_queries_today,
+            vectorize_queries_month: usage.vectorize_queries_month,
+            embeddings_stored: usage.embeddings_stored,
+            d1_reads_today: usage.d1_reads_today,
+          },
+          limits: {
+            vectorize_queries_per_day: BudgetLimits.VECTORIZE_QUERIES_PER_DAY,
+            vectorize_max_stored: BudgetLimits.VECTORIZE_MAX_STORED_VECTORS,
+            embedding_batch_size: BudgetLimits.EMBEDDING_BATCH_SIZE,
+          },
+          vectorize: vectorizeInfo,
+          warnings: [
+            usage.vectorize_queries_today > BudgetLimits.VECTORIZE_QUERIES_PER_DAY * 0.8 
+              ? `Vectorize queries at ${Math.round(usage.vectorize_queries_today / BudgetLimits.VECTORIZE_QUERIES_PER_DAY * 100)}% of daily limit` 
+              : null,
+            usage.embeddings_stored > BudgetLimits.VECTORIZE_MAX_STORED_VECTORS * 0.8 
+              ? `Stored vectors at ${Math.round(usage.embeddings_stored / BudgetLimits.VECTORIZE_MAX_STORED_VECTORS * 100)}% of limit` 
+              : null,
+          ].filter(Boolean),
+        }), {
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        });
+      }
+
       // Manual trigger endpoints (useful for testing)
-      // Protected by optional TRIGGER_SECRET environment variable
+      // Protected by TRIGGER_SECRET environment variable
       if (path.startsWith('/trigger/')) {
-        const triggerSecret = (env as any).TRIGGER_SECRET;
+        const triggerSecret = env.TRIGGER_SECRET;
+        if (!triggerSecret) {
+          console.warn('[Worker] TRIGGER_SECRET not configured - trigger endpoints are unprotected!');
+        }
         if (triggerSecret) {
           const authHeader = request.headers.get('Authorization');
           if (!authHeader || authHeader !== `Bearer ${triggerSecret}`) {
@@ -446,10 +834,15 @@ export default {
             stats: '/stats',
             api_items: '/api/items?limit=50&offset=0&type=story&orderBy=time&order=desc',
             api_item: '/api/item/:id',
+            api_similar: '/api/similar/:id?limit=5',
+            api_usage: '/api/usage',
             api_metrics: '/api/metrics',
             api_analytics: '/api/analytics',
             api_advanced_analytics: '/api/advanced-analytics',
             api_ai_analytics: '/api/ai-analytics',
+            api_ai_analytics_extended: '/api/ai-analytics-extended',
+            api_embedding_analytics: '/api/embedding-analytics',
+            api_compute_topic_similarity: '/api/compute-topic-similarity (auth required)',
             trigger_discovery: '/trigger/discovery',
             trigger_updates: '/trigger/updates',
             trigger_backfill: '/trigger/backfill',
@@ -467,10 +860,10 @@ export default {
     } catch (error) {
       console.error('[Worker] HTTP request failed:', error);
       
+      // Don't expose internal error details to clients
       return new Response(
         JSON.stringify({
           error: 'Internal server error',
-          message: error instanceof Error ? error.message : String(error),
         }),
         {
           status: 500,
