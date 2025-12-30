@@ -2,9 +2,23 @@
 node_modules/
 dist/
 .wrangler/
+.venv/
 *.log
 .env
+.env.*
 .dev.vars
 wrangler.toml.backup
 .vscode/
 .idea/
+
+# Local SQLite DB (generated)
+local.db
+database.sql
+
+# hn-analyzer: All paper/research files (not public)
+hn-analyzer/paper/
+hn-analyzer/analysis/
+hn-analyzer/data/*.db
+hn-analyzer/data/*.csv
+hn-analyzer/data/*.zip
+hn-analyzer/database.sql

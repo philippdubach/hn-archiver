@@ -1,0 +1,226 @@
+{
+  "power_law": {
+    "n_total": 29707,
+    "method": "powerlaw_package",
+    "alpha": 3.6814427726505876,
+    "xmin": 581.0,
+    "sigma": 0.25004582785179114,
+    "D": 0.04265525760041483,
+    "vs_exponential": {
+      "R": 1.594082733563802,
+      "p": 0.11091750566447263
+    },
+    "vs_lognormal": {
+      "R": -0.2380183906979616,
+      "p": 0.8118668303369045
+    },
+    "vs_truncated_powerlaw": {
+      "R": -0.4700995347347141,
+      "p": 0.5645791978740826
+    },
+    "tail_n": 115,
+    "tail_fraction": 0.003871141481805635
+  },
+  "attention_decay": {
+    "power_law": {
+      "a": 48.850571282166264,
+      "alpha": 0.5233053745870078,
+      "r_squared": 0.7491691831968168,
+      "sse": 15823.756902833811
+    },
+    "exponential": {
+      "a": 49.101833901748655,
+      "lambda": 0.09756307315593032,
+      "r_squared": 0.7675707243276567,
+      "sse": 14662.888724023123
+    },
+    "aic_power_law": 1275.411339158166,
+    "aic_exponential": 1250.4201377792656,
+    "preferred_model": "exponential"
+  },
+  "matthew_effect": {
+    "correlation": -0.03598195834327232,
+    "p_value": 2.241044798051615e-17,
+    "n": 55516
+  },
+  "survival": {
+    "median_lifetime": 30.836870555555556,
+    "mean_lifetime": 36.81882885483141,
+    "n_items": 2455
+  },
+  "circadian": {
+    "peak_volume_hour": 15,
+    "peak_quality_hour": 0,
+    "weekday_mean": 13.996571729957806,
+    "weekend_mean": 14.523076923076923
+  },
+  "inequality": {
+    "overall_gini": 0.891899197881334,
+    "topic_gini": {
+      "artificial-intelligence": 0.8957763594007366,
+      "business": 0.8476491111480312,
+      "other": 0.8909942926222802,
+      "politics": 0.7815273477812178,
+      "science": 0.8505239941639653,
+      "security": 0.4717391304347826
+    }
+  },
+  "topic_landscape": [
+    {
+      "topic": "artificial-intelligence",
+      "n": 22813,
+      "mean_score": 17.4302809801429,
+      "mean_sentiment": 0.3271143494421245,
+      "mean_comments": 37.79375103872361,
+      "controversy_ratio": 0.7996937610467152
+    },
+    {
+      "topic": "business",
+      "n": 39,
+      "mean_score": 11.871794871794872,
+      "mean_sentiment": 0.31374976141467836,
+      "mean_comments": 25.583333333333332,
+      "controversy_ratio": 0.6323019732502492
+    },
+    {
+      "topic": "other",
+      "n": 724,
+      "mean_score": 14.215469613259668,
+      "mean_sentiment": 0.43189539455470466,
+      "mean_comments": 37.236111111111114,
+      "controversy_ratio": 0.7719748899368377
+    },
+    {
+      "topic": "politics",
+      "n": 30,
+      "mean_score": 10.766666666666667,
+      "mean_sentiment": 0.22416034590860362,
+      "mean_comments": 38.92307692307692,
+      "controversy_ratio": 1.1818540433925049
+    },
+    {
+      "topic": "programming",
+      "n": 5,
+      "mean_score": 44.4,
+      "mean_sentiment": 0.714638045663014,
+      "mean_comments": 208.0,
+      "controversy_ratio": 0.9541284403669725
+    },
+    {
+      "topic": "science",
+      "n": 353,
+      "mean_score": 11.308781869688385,
+      "mean_sentiment": 0.5101217446697377,
+      "mean_comments": 26.805555555555557,
+      "controversy_ratio": 0.6402701817810211
+    },
+    {
+      "topic": "security",
+      "n": 20,
+      "mean_score": 2.3,
+      "mean_sentiment": 0.13257126134994907,
+      "mean_comments": 2.25,
+      "controversy_ratio": 0.7178571428571429
+    },
+    {
+      "topic": "web-development",
+      "n": 8,
+      "mean_score": 40.75,
+      "mean_sentiment": 0.5574489141035883,
+      "mean_comments": 56.5,
+      "controversy_ratio": 0.2988173398843428
+    }
+  ],
+  "velocity_prediction": {
+    "velocity_final_corr": 0.8187994365200894,
+    "velocity_p_value": 0.0,
+    "first_final_corr": 0.30932947285288814,
+    "precision": 0.9843342036553525,
+    "recall": 0.3955928646379853,
+    "n": 1945
+  },
+  "sensitivity": {
+    "all": {
+      "n": 29707,
+      "median": 1.0,
+      "mean": 14.119837075436767,
+      "gini": 0.891899197881334
+    },
+    "low_score": {
+      "n": 27800,
+      "median": 1.0,
+      "mean": 1.8151079136690647,
+      "gini": 0.41987655440451443
+    },
+    "medium_score": {
+      "n": 883,
+      "median": 56.0,
+      "mean": 58.49490373725934,
+      "gini": 0.19813105349688506
+    },
+    "high_score": {
+      "n": 1024,
+      "median": 218.0,
+      "mean": 309.9091796875,
+      "gini": 0.38937950253882186
+    },
+    "well_sampled": {
+      "n": 2143,
+      "median": 92.0,
+      "mean": 173.1455902939804,
+      "gini": 0.5580386392894513
+    },
+    "few_snapshots": {
+      "n": 27564,
+      "median": 1.0,
+      "mean": 1.7561674648091714,
+      "gini": 0.4062881984831388
+    },
+    "matthew_1_10": {
+      "n": 967,
+      "rho": 0.0002732393171377625,
+      "p": 0.9932293682434825
+    },
+    "matthew_10_30": {
+      "n": 3932,
+      "rho": -0.009729529862437324,
+      "p": 0.5419167498194926
+    },
+    "matthew_30_100": {
+      "n": 13416,
+      "rho": -0.0405568224759614,
+      "p": 2.613242875243887e-06
+    },
+    "matthew_100_1000": {
+      "n": 35200,
+      "rho": -0.01967688429954171,
+      "p": 0.00022255257263384477
+    }
+  },
+  "temporal_stability": {
+    "gini_stability": {
+      "mean": 0.8872304688448084,
+      "std": 0.011212644464829445,
+      "cv_percent": 1.2637803658195519,
+      "weekly_values": [
+        0.8659772815196407,
+        0.8956483888073452,
+        0.8859799924553591,
+        0.8958996635322558,
+        0.8926470179094409
+      ]
+    },
+    "matthew_stability": {
+      "mean": -0.022020133056468362,
+      "std": 0.07445216032368475,
+      "weekly_values": [
+        -0.13058618804487437,
+        -0.06555813008962103,
+        -0.02203289715602811,
+        0.018940466193720907,
+        0.08913608381446077
+      ],
+      "all_negative_or_zero": 0
+    }
+  }
+}

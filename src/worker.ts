@@ -265,7 +265,10 @@ export default {
 
       // Statistics endpoint
       if (path === '/stats') {
-        const stats = await getArchiveStats(env.DB);
+        const sinceParam = url.searchParams.get('since');
+        const since = sinceParam ? parseInt(sinceParam, 10) : undefined;
+        
+        const stats = await getArchiveStats(env.DB, since);
         const response: StatsResponse = {
           ...stats,
           timestamp: getCurrentTimestampMs(),
@@ -348,8 +351,12 @@ export default {
 
       // Analytics data
       if (path === '/api/analytics') {
+        const sinceParam = url.searchParams.get('since');
+        const sinceParsed = sinceParam ? parseInt(sinceParam) : undefined;
+        const since = sinceParsed && !isNaN(sinceParsed) ? sinceParsed : undefined;
+
         const [typeDistribution, snapshotReasons, topByScore, topByComments] = await Promise.all([
-          getTypeDistribution(env.DB),
+          getTypeDistribution(env.DB, since),
           getSnapshotReasons(env.DB),
           getTopItems(env.DB, 'score', 10),
           getTopItems(env.DB, 'descendants', 10),
@@ -367,6 +374,10 @@ export default {
 
       // Advanced analytics data
       if (path === '/api/advanced-analytics') {
+        const sinceParam = url.searchParams.get('since');
+        const sinceParsed = sinceParam ? parseInt(sinceParam) : undefined;
+        const since = sinceParsed && !isNaN(sinceParsed) ? sinceParsed : undefined;
+
         const [
           detailedStats,
           topAuthors,
@@ -377,14 +388,14 @@ export default {
           viralPosts,
           topDomains,
         ] = await Promise.all([
-          getDetailedStats(env.DB),
-          getTopAuthors(env.DB, 15),
-          getSuccessfulAuthors(env.DB, 15),
-          getPostsByHour(env.DB),
-          getPostsByDayOfWeek(env.DB),
-          getPostsByDate(env.DB, 30),
-          getViralPosts(env.DB, 10),
-          getTopDomains(env.DB, 15),
+          getDetailedStats(env.DB, since),
+          getTopAuthors(env.DB, 15, since),
+          getSuccessfulAuthors(env.DB, 15, since),
+          getPostsByHour(env.DB, since),
+          getPostsByDayOfWeek(env.DB, since),
+          getPostsByDate(env.DB, 30, since),
+          getViralPosts(env.DB, 10, since),
+          getTopDomains(env.DB, 15, since),
         ]);
         
         return new Response(JSON.stringify({
@@ -412,6 +423,10 @@ export default {
 
       // Extended AI analytics with performance data
       if (path === '/api/ai-analytics-extended') {
+        const sinceParam = url.searchParams.get('since');
+        const sinceParsed = sinceParam ? parseInt(sinceParam) : undefined;
+        const since = sinceParsed && !isNaN(sinceParsed) ? sinceParsed : undefined;
+
         const [
           basicStats,
           topicPerformance,
@@ -420,12 +435,12 @@ export default {
           sentimentByTopic,
           topPostsBySentiment,
         ] = await Promise.all([
-          getAIAnalysisStats(env.DB),
-          getTopicPerformance(env.DB),
-          getContentTypePerformance(env.DB),
-          getSentimentDistribution(env.DB),
-          getSentimentByTopic(env.DB),
-          getTopPostsBySentiment(env.DB, 5),
+          getAIAnalysisStats(env.DB, since),
+          getTopicPerformance(env.DB, since),
+          getContentTypePerformance(env.DB, since),
+          getSentimentDistribution(env.DB, since),
+          getSentimentByTopic(env.DB, since),
+          getTopPostsBySentiment(env.DB, 5, since),
         ]);
         
         return new Response(JSON.stringify({
@@ -442,13 +457,17 @@ export default {
 
       // Embedding analytics endpoint - coverage, topic clusters, similarity matrix
       if (path === '/api/embedding-analytics') {
+        const sinceParam = url.searchParams.get('since');
+        const sinceParsed = sinceParam ? parseInt(sinceParam) : undefined;
+        const since = sinceParsed && !isNaN(sinceParsed) ? sinceParsed : undefined;
+
         const [
           embeddingCoverage,
           topicClusters,
           cachedSimilarity,
         ] = await Promise.all([
-          getEmbeddingCoverage(env.DB),
-          getTopicClusterStats(env.DB),
+          getEmbeddingCoverage(env.DB, since),
+          getTopicClusterStats(env.DB, since),
           getCachedAnalytics(env.DB, 'topic_similarity_matrix'),
         ]);
 

@@ -257,12 +257,10 @@ export const INDEX_HTML = `<!DOCTYPE html>
         </select>
       </div>
       <div class="filter-group">
-        <label for="timeFilter">Time:</label>
-        <select id="timeFilter" onchange="resetAndLoad()">
-          <option value="">All Time</option>
-          <option value="today">Today</option>
-          <option value="24h">Last 24 Hours</option>
-        </select>
+        <label>
+          <input type="checkbox" id="last7Days" checked onchange="resetAndLoad()">
+          Last 7 Days
+        </label>
       </div>
       <div class="filter-group">
         <label for="sortOrder">Sort:</label>
@@ -301,11 +299,19 @@ export const INDEX_HTML = `<!DOCTYPE html>
     }
 
     async function loadStats() {
+      const last7Days = document.getElementById('last7Days')?.checked;
+      let analyticsUrl = \`\${API_BASE}/api/analytics\`;
+      
+      if (last7Days) {
+        const since = Math.floor(Date.now() / 1000) - 7 * 86400;
+        analyticsUrl += \`?since=\${since}\`;
+      }
+
       try {
         const [health, stats, analytics] = await Promise.all([
           fetch(\`\${API_BASE}/health\`).then(r => r.json()),
           fetch(\`\${API_BASE}/stats\`).then(r => r.json()),
-          fetch(\`\${API_BASE}/api/analytics\`).then(r => r.ok ? r.json() : null).catch(() => null)
+          fetch(analyticsUrl).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
         
         const lastUpdate = health.last_run?.discovery || stats.last_discovery;
@@ -370,11 +376,12 @@ export const INDEX_HTML = `<!DOCTYPE html>
     function resetAndLoad() {
       currentPage = 0;
       loadItems();
+      loadStats();
     }
 
     async function loadItems() {
       const type = document.getElementById('typeFilter').value;
-      const timeFilter = document.getElementById('timeFilter').value;
+      const last7Days = document.getElementById('last7Days').checked;
       const sortOrderValue = document.getElementById('sortOrder').value;
       const [orderBy, order] = sortOrderValue.split('-');
       
@@ -386,12 +393,8 @@ export const INDEX_HTML = `<!DOCTYPE html>
       });
       if (type) params.set('type', type);
       
-      if (timeFilter === 'today') {
-        const now = new Date();
-        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        params.set('since', Math.floor(startOfDay.getTime() / 1000).toString());
-      } else if (timeFilter === '24h') {
-        const since = Math.floor(Date.now() / 1000) - 86400;
+      if (last7Days) {
+        const since = Math.floor(Date.now() / 1000) - 7 * 86400;
         params.set('since', since.toString());
       }
       
@@ -1183,7 +1186,13 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
       <div class="card full">
         <div class="card-header">
           <h2>Archive Overview</h2>
-          <button class="refresh-btn" onclick="loadAll()">Refresh All</button>
+          <div style="display: flex; align-items: center; gap: 15px;">
+            <label style="font-size: 0.9rem; color: #666; display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="last7Days" checked onchange="loadAll()">
+              Last 7 Days
+            </label>
+            <button class="refresh-btn" onclick="loadAll()">Refresh All</button>
+          </div>
         </div>
         <div class="overview-stats" id="overview">
           <div class="loading">Loading stats</div>
@@ -1413,23 +1422,26 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
     };
 
     async function loadAll() {
+      const last7Days = document.getElementById('last7Days')?.checked;
+      const sinceParam = last7Days ? \`?since=\${Math.floor(Date.now() / 1000) - 7 * 86400}\` : '';
+
       await Promise.all([
-        loadOverview(),
-        loadBasicAnalytics(),
-        loadAdvancedAnalytics(),
-        loadAIAnalytics(),
-        loadEmbeddingAnalytics(),
+        loadOverview(sinceParam),
+        loadBasicAnalytics(sinceParam),
+        loadAdvancedAnalytics(sinceParam),
+        loadAIAnalytics(sinceParam),
+        loadEmbeddingAnalytics(sinceParam),
         loadMetrics()
       ]);
       generateInsights();
     }
 
-    async function loadOverview() {
+    async function loadOverview(sinceParam = '') {
       try {
         const [health, stats, advanced] = await Promise.all([
           fetch(\`\${API_BASE}/health\`).then(r => r.json()),
-          fetch(\`\${API_BASE}/stats\`).then(r => r.json()),
-          fetch(\`\${API_BASE}/api/advanced-analytics\`).then(r => r.ok ? r.json() : null).catch(() => null)
+          fetch(\`\${API_BASE}/stats\${sinceParam}\`).then(r => r.json()),
+          fetch(\`\${API_BASE}/api/advanced-analytics\${sinceParam}\`).then(r => r.ok ? r.json() : null).catch(() => null)
         ]);
         
         const detailed = advanced?.detailedStats || {};
@@ -1437,9 +1449,14 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
           ? Math.max(1, Math.floor((Date.now() / 1000 - detailed.oldest_item_time) / 86400))
           : 1;
         
+        // Calculate total items from detailed stats if filtered, otherwise use global stats
+        const totalItems = sinceParam 
+          ? (detailed.total_stories || 0) + (detailed.total_comments || 0) 
+          : (stats.total_items || 0);
+
         document.getElementById('overview').innerHTML = \`
           <div class="stat">
-            <div class="stat-value">\${(stats.total_items || 0).toLocaleString()}</div>
+            <div class="stat-value">\${totalItems.toLocaleString()}</div>
             <div class="stat-label">Total Items</div>
             <div class="stat-sub">\${(stats.items_today || 0).toLocaleString()} today</div>
           </div>
@@ -1477,9 +1494,9 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
       }
     }
 
-    async function loadBasicAnalytics() {
+    async function loadBasicAnalytics(sinceParam = '') {
       try {
-        const response = await fetch(\`\${API_BASE}/api/analytics\`);
+        const response = await fetch(\`\${API_BASE}/api/analytics\${sinceParam}\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -1512,9 +1529,9 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
       }
     }
 
-    async function loadAdvancedAnalytics() {
+    async function loadAdvancedAnalytics(sinceParam = '') {
       try {
-        const response = await fetch(\`\${API_BASE}/api/advanced-analytics\`);
+        const response = await fetch(\`\${API_BASE}/api/advanced-analytics\${sinceParam}\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -1544,9 +1561,9 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
       }
     }
 
-    async function loadAIAnalytics() {
+    async function loadAIAnalytics(sinceParam = '') {
       try {
-        const response = await fetch(\`\${API_BASE}/api/ai-analytics-extended\`);
+        const response = await fetch(\`\${API_BASE}/api/ai-analytics-extended\${sinceParam}\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
@@ -1852,9 +1869,9 @@ export const ANALYTICS_HTML = `<!DOCTYPE html>
 
     let embeddingAnalyticsData = {};
 
-    async function loadEmbeddingAnalytics() {
+    async function loadEmbeddingAnalytics(sinceParam = '') {
       try {
-        const response = await fetch(\`\${API_BASE}/api/embedding-analytics\`);
+        const response = await fetch(\`\${API_BASE}/api/embedding-analytics\${sinceParam}\`);
         if (!response.ok) throw new Error('API request failed');
         
         const data = await response.json();
