@@ -1,5 +1,7 @@
 # HackerNews Archiver
 
+👉 Read the research paper on SSRN: [https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5910263]
+
 A real-time HackerNews archiving system built on Cloudflare Workers. Captures every post and comment as they appear, tracks score/comment changes over time with intelligent snapshots, classifies content using Workers AI, and supports semantic similarity search via vector embeddings.
 
 ## Features
