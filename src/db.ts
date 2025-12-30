@@ -524,24 +524,32 @@ export async function recordMetrics(
  * Get comprehensive statistics about the archive
  * Used for monitoring endpoints and dashboards
  */
-export async function getArchiveStats(db: D1Database): Promise<ArchiveStats> {
+export async function getArchiveStats(db: D1Database, since?: number): Promise<ArchiveStats> {
   try {
     const oneDayAgo = getCurrentTimestampMs() - 24 * 60 * 60 * 1000;
     
-    const result = await db
-      .prepare(`
+    const query = `
         SELECT
           (SELECT value FROM archiving_state WHERE key = 'max_item_id_seen') as max_item_id,
-          (SELECT COUNT(*) FROM items) as total_items,
+          (SELECT COUNT(*) FROM items ${since ? 'WHERE time >= ?' : ''}) as total_items,
           (SELECT COUNT(*) FROM items WHERE first_seen_at > ?) as items_today,
-          (SELECT COUNT(*) FROM items WHERE deleted = 1) as deleted_count,
+          (SELECT COUNT(*) FROM items WHERE deleted = 1 ${since ? 'AND time >= ?' : ''}) as deleted_count,
           (SELECT COUNT(*) FROM item_snapshots WHERE captured_at > ?) as snapshots_today,
           (SELECT value FROM archiving_state WHERE key = 'errors_today') as errors_today,
           (SELECT value FROM archiving_state WHERE key = 'last_discovery_run') as last_discovery,
           (SELECT value FROM archiving_state WHERE key = 'last_updates_check') as last_update_check,
           (SELECT value FROM archiving_state WHERE key = 'last_backfill_run') as last_backfill
-      `)
-      .bind(oneDayAgo, oneDayAgo)
+      `;
+      
+    const bindings: any[] = [];
+    if (since) bindings.push(since);
+    bindings.push(oneDayAgo);
+    if (since) bindings.push(since);
+    bindings.push(oneDayAgo);
+
+    const result = await db
+      .prepare(query)
+      .bind(...bindings)
       .first<ArchiveStats>();
     
     if (!result) {
@@ -724,15 +732,30 @@ export async function getRecentMetrics(
 /**
  * Get type distribution for analytics
  */
-export async function getTypeDistribution(db: D1Database): Promise<Array<{ type: string; count: number }>> {
+export async function getTypeDistribution(
+  db: D1Database,
+  since?: number
+): Promise<Array<{ type: string; count: number }>> {
   try {
+    let query = `
+      SELECT type, COUNT(*) as count 
+      FROM items 
+    `;
+    
+    const bindings: number[] = [];
+    if (since) {
+      query += ` WHERE time >= ? `;
+      bindings.push(since);
+    }
+    
+    query += `
+      GROUP BY type 
+      ORDER BY count DESC
+    `;
+
     const result = await db
-      .prepare(`
-        SELECT type, COUNT(*) as count 
-        FROM items 
-        GROUP BY type 
-        ORDER BY count DESC
-      `)
+      .prepare(query)
+      .bind(...bindings)
       .all<{ type: string; count: number }>();
     
     return result.results || [];
@@ -808,9 +831,13 @@ export interface AuthorStats {
  */
 export async function getTopAuthors(
   db: D1Database,
-  limit: number = 20
+  limit: number = 20,
+  since?: number
 ): Promise<AuthorStats[]> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since, limit] : [limit];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -822,12 +849,12 @@ export async function getTopAuthors(
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
           COALESCE(SUM(descendants), 0) as total_comments_received
         FROM items 
-        WHERE by IS NOT NULL AND by != '' AND deleted = 0
+        WHERE by IS NOT NULL AND by != '' AND deleted = 0${timeFilter}
         GROUP BY by 
         ORDER BY post_count DESC 
         LIMIT ?
       `)
-      .bind(limit)
+      .bind(...bindings)
       .all<AuthorStats>();
     
     return result.results || [];
@@ -841,9 +868,13 @@ export async function getTopAuthors(
  */
 export async function getSuccessfulAuthors(
   db: D1Database,
-  limit: number = 20
+  limit: number = 20,
+  since?: number
 ): Promise<AuthorStats[]> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since, limit] : [limit];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -855,13 +886,13 @@ export async function getSuccessfulAuthors(
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
           COALESCE(SUM(descendants), 0) as total_comments_received
         FROM items 
-        WHERE by IS NOT NULL AND by != '' AND deleted = 0 AND type = 'story'
+        WHERE by IS NOT NULL AND by != '' AND deleted = 0 AND type = 'story'${timeFilter}
         GROUP BY by 
         HAVING story_count >= 2
         ORDER BY avg_score DESC 
         LIMIT ?
       `)
-      .bind(limit)
+      .bind(...bindings)
       .all<AuthorStats>();
     
     return result.results || [];
@@ -873,8 +904,11 @@ export async function getSuccessfulAuthors(
 /**
  * Get posts per hour of day (UTC)
  */
-export async function getPostsByHour(db: D1Database): Promise<Array<{ hour: number; count: number; avg_score: number }>> {
+export async function getPostsByHour(db: D1Database, since?: number): Promise<Array<{ hour: number; count: number; avg_score: number }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -882,10 +916,11 @@ export async function getPostsByHour(db: D1Database): Promise<Array<{ hour: numb
           COUNT(*) as count,
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score
         FROM items 
-        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL
+        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL${timeFilter}
         GROUP BY hour
         ORDER BY hour
       `)
+      .bind(...bindings)
       .all<{ hour: number; count: number; avg_score: number }>();
     
     return result.results || [];
@@ -897,10 +932,13 @@ export async function getPostsByHour(db: D1Database): Promise<Array<{ hour: numb
 /**
  * Get posts per day of week (0=Sunday, 6=Saturday)
  */
-export async function getPostsByDayOfWeek(db: D1Database): Promise<Array<{ day: number; day_name: string; count: number; avg_score: number }>> {
+export async function getPostsByDayOfWeek(db: D1Database, since?: number): Promise<Array<{ day: number; day_name: string; count: number; avg_score: number }>> {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -908,10 +946,11 @@ export async function getPostsByDayOfWeek(db: D1Database): Promise<Array<{ day: 
           COUNT(*) as count,
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score
         FROM items 
-        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL
+        WHERE type = 'story' AND deleted = 0 AND time IS NOT NULL${timeFilter}
         GROUP BY day
         ORDER BY day
       `)
+      .bind(...bindings)
       .all<{ day: number; count: number; avg_score: number }>();
     
     return (result.results || []).map(r => ({
@@ -928,9 +967,17 @@ export async function getPostsByDayOfWeek(db: D1Database): Promise<Array<{ day: 
  */
 export async function getPostsByDate(
   db: D1Database,
-  days: number = 30
+  days: number = 30,
+  since?: number
 ): Promise<Array<{ date: string; count: number; avg_score: number }>> {
-  const cutoff = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+  // If since is provided, use it. Otherwise calculate from days.
+  // If both are effectively provided (since is passed), we use the stricter one (max of since and cutoff)
+  // But for simplicity, let's just say if since is provided, we use it as the lower bound.
+  
+  let cutoff = Math.floor(Date.now() / 1000) - (days * 24 * 60 * 60);
+  if (since && since > cutoff) {
+    cutoff = since;
+  }
   
   try {
     const result = await db
@@ -970,9 +1017,13 @@ export interface ViralPost {
  */
 export async function getViralPosts(
   db: D1Database,
-  limit: number = 10
+  limit: number = 10,
+  since?: number
 ): Promise<ViralPost[]> {
   try {
+    const timeFilter = since ? ' AND i.time >= ?' : '';
+    const bindings = since ? [since, limit] : [limit];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -987,13 +1038,13 @@ export async function getViralPosts(
           ROUND((MAX(s.captured_at) - MIN(s.captured_at)) / 3600000.0, 1) as hours_tracked
         FROM items i
         JOIN item_snapshots s ON i.id = s.item_id
-        WHERE i.deleted = 0 AND i.type = 'story' AND s.score IS NOT NULL
+        WHERE i.deleted = 0 AND i.type = 'story' AND s.score IS NOT NULL${timeFilter}
         GROUP BY i.id
         HAVING snapshot_count > 1 AND score_growth > 0
         ORDER BY score_growth DESC
         LIMIT ?
       `)
-      .bind(limit)
+      .bind(...bindings)
       .all<ViralPost>();
     
     return result.results || [];
@@ -1007,9 +1058,13 @@ export async function getViralPosts(
  */
 export async function getTopDomains(
   db: D1Database,
-  limit: number = 20
+  limit: number = 20,
+  since?: number
 ): Promise<Array<{ domain: string; count: number; avg_score: number; total_score: number }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since, limit] : [limit];
+
     // SQLite doesn't have great URL parsing, so we extract domain with substr/instr
     const result = await db
       .prepare(`
@@ -1035,13 +1090,13 @@ export async function getTopDomains(
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
           COALESCE(SUM(score), 0) as total_score
         FROM items 
-        WHERE type = 'story' AND deleted = 0 AND url IS NOT NULL AND url != ''
+        WHERE type = 'story' AND deleted = 0 AND url IS NOT NULL AND url != ''${timeFilter}
         GROUP BY domain
         HAVING count >= 2
         ORDER BY count DESC
         LIMIT ?
       `)
-      .bind(limit)
+      .bind(...bindings)
       .all<{ domain: string; count: number; avg_score: number; total_score: number }>();
     
     return result.results || [];
@@ -1053,7 +1108,7 @@ export async function getTopDomains(
 /**
  * Get overall archive statistics summary
  */
-export async function getDetailedStats(db: D1Database): Promise<{
+export async function getDetailedStats(db: D1Database, since?: number): Promise<{
   total_stories: number;
   total_comments: number;
   total_authors: number;
@@ -1064,18 +1119,34 @@ export async function getDetailedStats(db: D1Database): Promise<{
   newest_item_time: number | null;
 }> {
   try {
+    let query = `
+      SELECT 
+        (SELECT COUNT(*) FROM items WHERE type = 'story'${since ? ' AND time >= ?' : ''}) as total_stories,
+        (SELECT COUNT(*) FROM items WHERE type = 'comment'${since ? ' AND time >= ?' : ''}) as total_comments,
+        (SELECT COUNT(DISTINCT by) FROM items WHERE by IS NOT NULL${since ? ' AND time >= ?' : ''}) as total_authors,
+        (SELECT ROUND(COALESCE(AVG(score), 0), 1) FROM items WHERE type = 'story'${since ? ' AND time >= ?' : ''}) as avg_story_score,
+        (SELECT ROUND(COALESCE(AVG(descendants), 0), 1) FROM items WHERE type = 'story'${since ? ' AND time >= ?' : ''}) as avg_comments_per_story,
+        (SELECT COUNT(*) FROM item_snapshots${since ? ' WHERE captured_at >= ?' : ''}) as total_snapshots,
+        (SELECT MIN(time) FROM items WHERE time IS NOT NULL${since ? ' AND time >= ?' : ''}) as oldest_item_time,
+        (SELECT MAX(time) FROM items WHERE time IS NOT NULL${since ? ' AND time >= ?' : ''}) as newest_item_time
+    `;
+
+    const bindings: number[] = [];
+    if (since) {
+      // Add binding for each placeholder in order
+      bindings.push(since); // total_stories
+      bindings.push(since); // total_comments
+      bindings.push(since); // total_authors
+      bindings.push(since); // avg_story_score
+      bindings.push(since); // avg_comments_per_story
+      bindings.push(since); // total_snapshots (captured_at)
+      bindings.push(since); // oldest_item_time
+      bindings.push(since); // newest_item_time
+    }
+
     const result = await db
-      .prepare(`
-        SELECT 
-          (SELECT COUNT(*) FROM items WHERE type = 'story') as total_stories,
-          (SELECT COUNT(*) FROM items WHERE type = 'comment') as total_comments,
-          (SELECT COUNT(DISTINCT by) FROM items WHERE by IS NOT NULL) as total_authors,
-          (SELECT ROUND(COALESCE(AVG(score), 0), 1) FROM items WHERE type = 'story') as avg_story_score,
-          (SELECT ROUND(COALESCE(AVG(descendants), 0), 1) FROM items WHERE type = 'story') as avg_comments_per_story,
-          (SELECT COUNT(*) FROM item_snapshots) as total_snapshots,
-          (SELECT MIN(time) FROM items WHERE time IS NOT NULL) as oldest_item_time,
-          (SELECT MAX(time) FROM items WHERE time IS NOT NULL) as newest_item_time
-      `)
+      .prepare(query)
+      .bind(...bindings)
       .first<{
         total_stories: number;
         total_comments: number;
@@ -1214,7 +1285,7 @@ export async function getItemsNeedingAIAnalysis(
 /**
  * Get AI analysis statistics
  */
-export async function getAIAnalysisStats(db: D1Database): Promise<{
+export async function getAIAnalysisStats(db: D1Database, since?: number): Promise<{
   total_analyzed: number;
   total_pending: number;
   topics: Array<{ topic: string; count: number }>;
@@ -1222,29 +1293,35 @@ export async function getAIAnalysisStats(db: D1Database): Promise<{
   avg_sentiment: number;
 }> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+    
+    // For the first query which has multiple subqueries, we need to bind 'since' multiple times if used
+    const statsBindings = since ? [since, since, since] : [];
+
     const [statsResult, topicsResult, contentTypesResult] = await Promise.all([
       db.prepare(`
         SELECT 
-          (SELECT COUNT(*) FROM items WHERE ai_analyzed_at IS NOT NULL) as total_analyzed,
-          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NULL AND deleted = 0 AND title IS NOT NULL) as total_pending,
-          (SELECT ROUND(AVG(ai_sentiment), 3) FROM items WHERE ai_sentiment IS NOT NULL) as avg_sentiment
-      `).first<{ total_analyzed: number; total_pending: number; avg_sentiment: number }>(),
+          (SELECT COUNT(*) FROM items WHERE ai_analyzed_at IS NOT NULL${timeFilter}) as total_analyzed,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NULL AND deleted = 0 AND title IS NOT NULL${timeFilter}) as total_pending,
+          (SELECT ROUND(AVG(ai_sentiment), 3) FROM items WHERE ai_sentiment IS NOT NULL${timeFilter}) as avg_sentiment
+      `).bind(...statsBindings).first<{ total_analyzed: number; total_pending: number; avg_sentiment: number }>(),
       
       db.prepare(`
         SELECT ai_topic as topic, COUNT(*) as count
         FROM items
-        WHERE ai_topic IS NOT NULL
+        WHERE ai_topic IS NOT NULL${timeFilter}
         GROUP BY ai_topic
         ORDER BY count DESC
-      `).all<{ topic: string; count: number }>(),
+      `).bind(...bindings).all<{ topic: string; count: number }>(),
       
       db.prepare(`
         SELECT ai_content_type as content_type, COUNT(*) as count
         FROM items
-        WHERE ai_content_type IS NOT NULL
+        WHERE ai_content_type IS NOT NULL${timeFilter}
         GROUP BY ai_content_type
         ORDER BY count DESC
-      `).all<{ content_type: string; count: number }>(),
+      `).bind(...bindings).all<{ content_type: string; count: number }>(),
     ]);
     
     return {
@@ -1262,7 +1339,7 @@ export async function getAIAnalysisStats(db: D1Database): Promise<{
 /**
  * Get performance metrics by AI topic
  */
-export async function getTopicPerformance(db: D1Database): Promise<Array<{
+export async function getTopicPerformance(db: D1Database, since?: number): Promise<Array<{
   topic: string;
   count: number;
   avg_score: number;
@@ -1270,6 +1347,9 @@ export async function getTopicPerformance(db: D1Database): Promise<Array<{
   total_score: number;
 }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -1279,10 +1359,11 @@ export async function getTopicPerformance(db: D1Database): Promise<Array<{
           ROUND(COALESCE(AVG(descendants), 0), 1) as avg_comments,
           COALESCE(SUM(score), 0) as total_score
         FROM items
-        WHERE ai_topic IS NOT NULL AND deleted = 0
+        WHERE ai_topic IS NOT NULL AND deleted = 0${timeFilter}
         GROUP BY ai_topic
         ORDER BY count DESC
       `)
+      .bind(...bindings)
       .all<{ topic: string; count: number; avg_score: number; avg_comments: number; total_score: number }>();
     
     return result.results || [];
@@ -1294,13 +1375,16 @@ export async function getTopicPerformance(db: D1Database): Promise<Array<{
 /**
  * Get performance metrics by AI content type
  */
-export async function getContentTypePerformance(db: D1Database): Promise<Array<{
+export async function getContentTypePerformance(db: D1Database, since?: number): Promise<Array<{
   content_type: string;
   count: number;
   avg_score: number;
   avg_comments: number;
 }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -1309,10 +1393,11 @@ export async function getContentTypePerformance(db: D1Database): Promise<Array<{
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
           ROUND(COALESCE(AVG(descendants), 0), 1) as avg_comments
         FROM items
-        WHERE ai_content_type IS NOT NULL AND deleted = 0
+        WHERE ai_content_type IS NOT NULL AND deleted = 0${timeFilter}
         GROUP BY ai_content_type
         ORDER BY avg_score DESC
       `)
+      .bind(...bindings)
       .all<{ content_type: string; count: number; avg_score: number; avg_comments: number }>();
     
     return result.results || [];
@@ -1324,7 +1409,7 @@ export async function getContentTypePerformance(db: D1Database): Promise<Array<{
 /**
  * Get sentiment distribution in buckets
  */
-export async function getSentimentDistribution(db: D1Database): Promise<Array<{
+export async function getSentimentDistribution(db: D1Database, since?: number): Promise<Array<{
   bucket: string;
   min_val: number;
   max_val: number;
@@ -1332,6 +1417,9 @@ export async function getSentimentDistribution(db: D1Database): Promise<Array<{
   avg_score: number;
 }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -1359,10 +1447,11 @@ export async function getSentimentDistribution(db: D1Database): Promise<Array<{
           COUNT(*) as count,
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score
         FROM items
-        WHERE ai_sentiment IS NOT NULL AND deleted = 0
+        WHERE ai_sentiment IS NOT NULL AND deleted = 0${timeFilter}
         GROUP BY bucket
         ORDER BY min_val ASC
       `)
+      .bind(...bindings)
       .all<{ bucket: string; min_val: number; max_val: number; count: number; avg_score: number }>();
     
     return result.results || [];
@@ -1374,12 +1463,15 @@ export async function getSentimentDistribution(db: D1Database): Promise<Array<{
 /**
  * Get sentiment by topic
  */
-export async function getSentimentByTopic(db: D1Database): Promise<Array<{
+export async function getSentimentByTopic(db: D1Database, since?: number): Promise<Array<{
   topic: string;
   avg_sentiment: number;
   count: number;
 }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -1387,11 +1479,12 @@ export async function getSentimentByTopic(db: D1Database): Promise<Array<{
           ROUND(AVG(ai_sentiment), 3) as avg_sentiment,
           COUNT(*) as count
         FROM items
-        WHERE ai_topic IS NOT NULL AND ai_sentiment IS NOT NULL AND deleted = 0
+        WHERE ai_topic IS NOT NULL AND ai_sentiment IS NOT NULL AND deleted = 0${timeFilter}
         GROUP BY ai_topic
         HAVING count >= 3
         ORDER BY avg_sentiment DESC
       `)
+      .bind(...bindings)
       .all<{ topic: string; avg_sentiment: number; count: number }>();
     
     return result.results || [];
@@ -1403,27 +1496,30 @@ export async function getSentimentByTopic(db: D1Database): Promise<Array<{
 /**
  * Get top posts by sentiment (most positive and most negative)
  */
-export async function getTopPostsBySentiment(db: D1Database, limit: number = 5): Promise<{
+export async function getTopPostsBySentiment(db: D1Database, limit: number = 5, since?: number): Promise<{
   most_positive: Array<{ id: number; title: string; sentiment: number; score: number }>;
   most_negative: Array<{ id: number; title: string; sentiment: number; score: number }>;
 }> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since, limit] : [limit];
+
     const [positiveResult, negativeResult] = await Promise.all([
       db.prepare(`
         SELECT id, title, ai_sentiment as sentiment, score
         FROM items
-        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0
+        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0${timeFilter}
         ORDER BY ai_sentiment DESC
         LIMIT ?
-      `).bind(limit).all<{ id: number; title: string; sentiment: number; score: number }>(),
+      `).bind(...bindings).all<{ id: number; title: string; sentiment: number; score: number }>(),
       
       db.prepare(`
         SELECT id, title, ai_sentiment as sentiment, score
         FROM items
-        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0
+        WHERE ai_sentiment IS NOT NULL AND title IS NOT NULL AND deleted = 0 AND score > 0${timeFilter}
         ORDER BY ai_sentiment ASC
         LIMIT ?
-      `).bind(limit).all<{ id: number; title: string; sentiment: number; score: number }>(),
+      `).bind(...bindings).all<{ id: number; title: string; sentiment: number; score: number }>(),
     ]);
     
     return {
@@ -1674,7 +1770,7 @@ export async function checkUsageLimits(
 /**
  * Get embedding coverage statistics for analytics dashboard
  */
-export async function getEmbeddingCoverage(db: D1Database): Promise<{
+export async function getEmbeddingCoverage(db: D1Database, since?: number): Promise<{
   total_stories: number;
   stories_with_ai: number;
   stories_with_embedding: number;
@@ -1683,13 +1779,19 @@ export async function getEmbeddingCoverage(db: D1Database): Promise<{
   recent_embeddings: Array<{ date: string; count: number }>;
 }> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+    
+    // For the first query which has multiple subqueries, we need to bind 'since' multiple times if used
+    const statsBindings = since ? [since, since, since] : [];
+
     const [statsResult, byTopicResult, recentResult] = await Promise.all([
       db.prepare(`
         SELECT 
-          (SELECT COUNT(*) FROM items WHERE type = 'story' AND deleted = 0) as total_stories,
-          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NOT NULL AND deleted = 0) as stories_with_ai,
-          (SELECT COUNT(*) FROM items WHERE type = 'story' AND embedding_generated_at IS NOT NULL AND deleted = 0) as stories_with_embedding
-      `).first<{ total_stories: number; stories_with_ai: number; stories_with_embedding: number }>(),
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND deleted = 0${timeFilter}) as total_stories,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND ai_analyzed_at IS NOT NULL AND deleted = 0${timeFilter}) as stories_with_ai,
+          (SELECT COUNT(*) FROM items WHERE type = 'story' AND embedding_generated_at IS NOT NULL AND deleted = 0${timeFilter}) as stories_with_embedding
+      `).bind(...statsBindings).first<{ total_stories: number; stories_with_ai: number; stories_with_embedding: number }>(),
       
       db.prepare(`
         SELECT 
@@ -1697,21 +1799,21 @@ export async function getEmbeddingCoverage(db: D1Database): Promise<{
           COUNT(*) as count,
           SUM(CASE WHEN embedding_generated_at IS NOT NULL THEN 1 ELSE 0 END) as with_embedding
         FROM items
-        WHERE type = 'story' AND deleted = 0
+        WHERE type = 'story' AND deleted = 0${timeFilter}
         GROUP BY COALESCE(ai_topic, 'unanalyzed')
         ORDER BY count DESC
-      `).all<{ topic: string; count: number; with_embedding: number }>(),
+      `).bind(...bindings).all<{ topic: string; count: number; with_embedding: number }>(),
       
       db.prepare(`
         SELECT 
           date(embedding_generated_at / 1000, 'unixepoch') as date,
           COUNT(*) as count
         FROM items
-        WHERE embedding_generated_at IS NOT NULL
+        WHERE embedding_generated_at IS NOT NULL${timeFilter ? ' AND time >= ?' : ''}
         GROUP BY date
         ORDER BY date DESC
         LIMIT 14
-      `).all<{ date: string; count: number }>(),
+      `).bind(...bindings).all<{ date: string; count: number }>(),
     ]);
     
     const stats = statsResult || { total_stories: 0, stories_with_ai: 0, stories_with_embedding: 0 };
@@ -1736,7 +1838,7 @@ export async function getEmbeddingCoverage(db: D1Database): Promise<{
  * Get topic cluster statistics - shows how stories are distributed by topic
  * and their average similarity to other stories in the same topic
  */
-export async function getTopicClusterStats(db: D1Database): Promise<Array<{
+export async function getTopicClusterStats(db: D1Database, since?: number): Promise<Array<{
   topic: string;
   story_count: number;
   embedded_count: number;
@@ -1744,6 +1846,9 @@ export async function getTopicClusterStats(db: D1Database): Promise<Array<{
   avg_sentiment: number;
 }>> {
   try {
+    const timeFilter = since ? ' AND time >= ?' : '';
+    const bindings = since ? [since] : [];
+
     const result = await db
       .prepare(`
         SELECT 
@@ -1753,10 +1858,11 @@ export async function getTopicClusterStats(db: D1Database): Promise<Array<{
           ROUND(COALESCE(AVG(score), 0), 1) as avg_score,
           ROUND(COALESCE(AVG(ai_sentiment), 0.5), 3) as avg_sentiment
         FROM items
-        WHERE ai_topic IS NOT NULL AND deleted = 0
+        WHERE ai_topic IS NOT NULL AND deleted = 0${timeFilter}
         GROUP BY ai_topic
         ORDER BY story_count DESC
       `)
+      .bind(...bindings)
       .all<{ topic: string; story_count: number; embedded_count: number; avg_score: number; avg_sentiment: number }>();
     
     return result.results || [];

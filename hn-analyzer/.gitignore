@@ -1,0 +1,37 @@
+# Data files (large - available via Mendeley Data)
+data/*.db
+data/*.csv
+data/*.zip
+
+# LaTeX auxiliary files
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.bbl
+paper/*.blg
+
+# Overleaf exports
+paper/*.zip
+
+# Anonymized/draft versions (not public)
+paper/anonymized_*/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
